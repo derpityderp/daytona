@@ -56,9 +56,9 @@ func init() {
 		return err == nil && b
 	}(), "select kubernetes vault auth as the vault authentication mechanism (env: K8S_AUTH)")
 	flag.BoolVar(&config.iamAuth, "iam-auth", func() bool {
-		b, err := strconv.ParseBool(buildDefaultConfigItem("IAM_AUTH", "false (env: IAM_AUTH"))
+		b, err := strconv.ParseBool(buildDefaultConfigItem("IAM_AUTH", "false"))
 		return err == nil && b
-	}(), "select AWS IAM vault auth as the vault authentication mechanism")
+	}(), "select AWS IAM vault auth as the vault authentication mechanism (env: IAM_AUTH)")
 	flag.StringVar(&config.k8sTokenPath, "k8s-token-path", buildDefaultConfigItem("K8S_TOKEN_PATH", "/var/run/secrets/kubernetes.io/serviceaccount/token"), "kubernetes service account jtw token path (env: K8S_TOKEN_PATH)")
 	flag.StringVar(&config.authRoleName, "auth-role", buildDefaultConfigItem("ROLE_NAME", ""), "used with either auth method (env: ROLE_NAME)")
 	flag.StringVar(&config.k8sAuthMount, "k8s-auth-mount", buildDefaultConfigItem("K8S_AUTH_MOUNT", "kubernetes"), "the vault mount where k8s auth takes place (env: K8S_AUTH_MOUNT)")
@@ -77,7 +77,7 @@ func init() {
 			return 43200
 		}
 		return b
-	}(), "the threshold remaining in the vault token, in seconds, after which it should be renewed")
+	}(), "the threshold remaining in the vault token, in seconds, after which it should be renewed (env: RENEWAL_THRESHOLD)")
 	flag.StringVar(&config.secretPayloadPath, "secret-path", buildDefaultConfigItem("SECRET_PATH", ""), "(env: SECRET_PATH)")
 }
 
