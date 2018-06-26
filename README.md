@@ -1,5 +1,6 @@
 # daytona
 
+```
 Usage of ./daytona:
   -address string
         (env: VAULT_ADDR) (default "https://vault.secure.car:8200")
@@ -23,3 +24,4 @@ Usage of ./daytona:
         (env: SECRET_PATH)
   -token-path string
         file path where a token will be read from/written to (env: TOKEN_PATH) (default "~/.vault-token")
+```
