@@ -1,7 +1,7 @@
 # daytona
 
 ```
-Usage of ./mike:
+Usage of ./daytona:
   -address string
         (env: VAULT_ADDR) (default "https://vault.secure.car:8200")
   -auth-role string
