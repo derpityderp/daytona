@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -35,6 +36,7 @@ type configuration struct {
 	renewalThreshold  int64
 	renewalInterval   int64
 	secretPayloadPath string
+	autoRenew         bool
 }
 
 var config configuration
@@ -50,7 +52,7 @@ func buildDefaultConfigItem(envKey string, def string) (val string) {
 
 func init() {
 	flag.StringVar(&config.vaultAddress, "address", buildDefaultConfigItem("VAULT_ADDR", "https://vault.secure.car:8200"), "(env: VAULT_ADDR)")
-	flag.StringVar(&config.tokenPath, "token-path", buildDefaultConfigItem("TOKEN_PATH", "~/.vault-token"), "file path where a token will be read from/written to (env: TOKEN_PATH)")
+	flag.StringVar(&config.tokenPath, "token-path", buildDefaultConfigItem("TOKEN_PATH", "~/.vault-token"), "a full file path where a token will be read from/written to (env: TOKEN_PATH)")
 	flag.BoolVar(&config.k8sAuth, "k8s-auth", func() bool {
 		b, err := strconv.ParseBool(buildDefaultConfigItem("K8S_AUTH", "false"))
 		return err == nil && b
@@ -60,7 +62,7 @@ func init() {
 		return err == nil && b
 	}(), "select AWS IAM vault auth as the vault authentication mechanism (env: IAM_AUTH)")
 	flag.StringVar(&config.k8sTokenPath, "k8s-token-path", buildDefaultConfigItem("K8S_TOKEN_PATH", "/var/run/secrets/kubernetes.io/serviceaccount/token"), "kubernetes service account jtw token path (env: K8S_TOKEN_PATH)")
-	flag.StringVar(&config.authRoleName, "auth-role", buildDefaultConfigItem("ROLE_NAME", ""), "used with either auth method (env: ROLE_NAME)")
+	flag.StringVar(&config.authRoleName, "auth-role", buildDefaultConfigItem("AUTH_ROLE", ""), "the name of the role used for auth. used with either auth method (env: AUTH_ROLE)")
 	flag.StringVar(&config.k8sAuthMount, "k8s-auth-mount", buildDefaultConfigItem("K8S_AUTH_MOUNT", "kubernetes"), "the vault mount where k8s auth takes place (env: K8S_AUTH_MOUNT)")
 	flag.StringVar(&config.iamAuthMount, "iam-auth-mount", buildDefaultConfigItem("IAM_AUTH_MOUNT", "aws"), "the vault mount where iam auth takes place (env: IAM_AUTH_MOUNT)")
 
@@ -78,7 +80,11 @@ func init() {
 		}
 		return b
 	}(), "the threshold remaining in the vault token, in seconds, after which it should be renewed (env: RENEWAL_THRESHOLD)")
-	flag.StringVar(&config.secretPayloadPath, "secret-path", buildDefaultConfigItem("SECRET_PATH", ""), "(env: SECRET_PATH)")
+	flag.StringVar(&config.secretPayloadPath, "secret-path", buildDefaultConfigItem("SECRET_PATH", ""), "the full file path to store the JSON blob of the fetched secrets (env: SECRET_PATH)")
+	flag.BoolVar(&config.autoRenew, "auto-renew", func() bool {
+		b, err := strconv.ParseBool(buildDefaultConfigItem("AUTO_RENEW", "false"))
+		return err == nil && b
+	}(), "if enabled, starts the token renewal service (env: AUTO_RENEW)")
 }
 
 func main() {
@@ -97,7 +103,7 @@ func main() {
 	}
 
 	if config.authRoleName == "" {
-		log.Fatalln("you must supply a role name")
+		log.Fatalln("you must supply a role name via AUTH_ROLE or -auth-role")
 	}
 
 	fullTokenPath, err := homedir.Expand(config.tokenPath)
@@ -105,6 +111,12 @@ func main() {
 		log.Println("could not expand", config.tokenPath, "using it as-is")
 	} else {
 		config.tokenPath = fullTokenPath
+	}
+	if f, err := os.Stat(config.tokenPath); err == nil {
+		if f.IsDir() {
+			log.Println("the token path you provided is a directory, automatically appending .vault-token filename")
+			config.tokenPath = filepath.Join(config.tokenPath, ".vault-token")
+		}
 	}
 
 	client, err := api.NewClient(&api.Config{Address: config.vaultAddress})
@@ -130,38 +142,40 @@ func main() {
 				authenticate(client, &config)
 				continue
 			}
+			log.Println("found and existing token at", config.tokenPath)
 			vaultToken = string(fileToken)
 			client.SetToken(string(vaultToken))
 		}
 
 		_, err := client.Auth().Token().LookupSelf()
 		if err != nil {
-			log.Println("invalid token, what to do next?")
+			log.Println("invalid token", err)
 			authenticate(client, &config)
 			continue
 		} else {
 			authenticated = true
 		}
-
 		<-authTicker
 	}
 
-	// if you send USR1, we'll re-fetch seekrits
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan,
-		syscall.SIGUSR1)
-
-	go func() {
-		for {
-			s := <-sigChan
-			switch s {
-			case syscall.SIGUSR1:
-				secretFetcher(client, &config)
-			}
-		}
-	}()
 	secretFetcher(client, &config)
-	renewService(client, &config, (time.Second * time.Duration(config.renewalInterval)))
+	if config.autoRenew {
+		// if you send USR1, we'll re-fetch seekrits
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan,
+			syscall.SIGUSR1)
+
+		go func() {
+			for {
+				s := <-sigChan
+				switch s {
+				case syscall.SIGUSR1:
+					secretFetcher(client, &config)
+				}
+			}
+		}()
+		renewService(client, &config, (time.Second * time.Duration(config.renewalInterval)))
+	}
 }
 
 func kubernetesAuth(client *api.Client, c *configuration) (string, error) {
@@ -270,6 +284,10 @@ func renewService(client *api.Client, c *configuration, interval time.Duration) 
 				log.Println("failed to renew the existing token:", err)
 			}
 			client.SetToken(string(secret.Auth.ClientToken))
+			err = ioutil.WriteFile(config.tokenPath, []byte(secret.Auth.ClientToken), 0600)
+			if err != nil {
+				log.Println("could not write token to file", config.tokenPath, err.Error())
+			}
 		} else {
 			log.Println(fmt.Sprintf("existing token ttl of %d seconds is still above the threshold (%d), skipping renewal", int64(ttl.Seconds()), c.renewalThreshold))
 		}
@@ -282,6 +300,12 @@ func secretFetcher(client *api.Client, c *configuration) {
 	if c.secretPayloadPath == "" {
 		log.Println("no secret payload path was provided, will not write secrets to disk")
 		return
+	}
+	if f, err := os.Stat(c.secretPayloadPath); err == nil {
+		if f.IsDir() {
+			log.Println("the token path you provided is a directory, please supply a full file path")
+			return
+		}
 	}
 	payloads := make(map[string]interface{})
 	envs := os.Environ()
