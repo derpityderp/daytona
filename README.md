@@ -2,25 +2,27 @@
 
 This is intended to be a lighter, alternate implementation of the vault client CLI, but for servers and containers. Its core features are the abilty to automate authentication, fetching of secrets, and automated token renewal.
 
-### Secret Fetching
-
-`daytona ` gives you the ability to pre-fetch secrets upon launch and store them in a specified JSON file after retrievial. The desrired secrets are specified by providing environment variables prefixed with `VAULT_SECRET_` and their value set as the vault path on which the secret can be accessed.
-
-The following options `VAULT_SECRET_DATABASE_PASSWORD=secret/infrastructure/applicationZ/database SECRET_PATH=/tmp/sshhhhhhh` would yield the following at `/tmp/sshhhhhhh`:
-
-```
-{
-      "secret/infrastructure/applicationZ/database": {
-            "password": "YellowLamborghini"
-      }
-}
-```
-
 ### Authentication
+
+Previously, authentication to and secret retrevial from vault via a server or container was a delicate balance of shell scripts or potentially lengthy http implementations, similar to:
+
+```
+vault login -token-only -method=aws role=$VAULT_ROLE"
+THING="$(vault read -field=key secret/infrastrucure/appZ/thing)"
+ANOTHER_THING="$(vault read -field=key secret/infrastrucure/appZ/another_thing)"
+echo $THING | appZ
+....
+```
+
+Now, a single binary can be used to accomplish most of these goals. The following authentication methods are supported:
 
 **Kubernetes** - Intended for use as an `initContainer` or sidecar container for managing secrets withing a pod.
 
-`VAULT_SECRET_TEST=secret/infrastructure/applicationZ/secrets daytona -k8s-auth -token-path /home/vault/.vault-token -auth-role vault-role-name -secret-path /home/vault/secrets`
+Command Line: `VAULT_SECRET_TEST=secret/infrastructure/applicationZ/secrets daytona -k8s-auth -token-path /home/vault/.vault-token -auth-role vault-role-name -secret-path /home/vault/secrets`
+
+Pod Definition:
+
+
 
 
 ```yaml
@@ -76,6 +78,20 @@ The execution example above (assuming a successful authentication) would yield a
       "secret/infrastructure/applicationZ/secrets": {
             "secretA": "soosecret",
             "api_key": "helloooo"
+      }
+}
+```
+
+### Secret Fetching
+
+`daytona ` gives you the ability to pre-fetch secrets upon launch and store them in a specified JSON file after retrievial. The desrired secrets are specified by providing environment variables prefixed with `VAULT_SECRET_` and their value set as the vault path on which the secret can be accessed.
+
+The following options `VAULT_SECRET_DATABASE_PASSWORD=secret/infrastructure/applicationZ/database SECRET_PATH=/tmp/sshhhhhhh` would yield the following at `/tmp/sshhhhhhh`:
+
+```
+{
+      "secret/infrastructure/applicationZ/database": {
+            "password": "YellowLamborghini"
       }
 }
 ```
