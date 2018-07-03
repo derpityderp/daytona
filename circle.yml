@@ -5,8 +5,8 @@ machine:
 
 dependencies:
   override:
+    - docker login -u $QUAY_USERNAME -p $QUAY_PASSWORD quay.robot.car
 
 test:
   override:
-    - docker login -u $QUAY_USERNAME -p $QUAY_PASSWORD quay.robot.car
     - ./tools.sh docker/build
