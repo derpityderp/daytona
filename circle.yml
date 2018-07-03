@@ -3,6 +3,9 @@ machine:
   services:
     - docker
 
+dependencies:
+  override:
+
 test:
   override:
     - docker login -u $QUAY_USERNAME -p $QUAY_PASSWORD quay.robot.car
