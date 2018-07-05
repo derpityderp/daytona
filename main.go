@@ -352,8 +352,7 @@ func secretFetcher(client *api.Client, c *configuration) {
 
 			secret, err := client.Logical().Read(secretPath)
 			if err != nil {
-				log.Println(fmt.Sprintf("there was a problem fetching %s: %s", secretPath, err))
-				continue
+				log.Fatalln(fmt.Sprintf("there was a problem fetching %s: %s", secretPath, err))
 			}
 			if secret != nil {
 				log.Println("direct secret path detected")
@@ -363,8 +362,7 @@ func secretFetcher(client *api.Client, c *configuration) {
 
 				err = secretWriter(keyName, secret.Data, filePayloads)
 				if err != nil {
-					log.Println("failed to write secret", secretPath, err)
-					continue
+					log.Fatalln("failed to write secret", secretPath, err)
 				}
 			} else {
 				// if the inital secret result is nil, check to see if it is
