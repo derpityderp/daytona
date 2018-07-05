@@ -360,7 +360,7 @@ func secretFetcher(client *api.Client, c *configuration) {
 				splitPath := strings.Split(secretPath, "/")
 				keyName := splitPath[len(splitPath)-1]
 
-				err = secretWriter(keyName, secret.Data, filePayloads)
+				err = secretWriter(c, keyName, secret.Data, filePayloads)
 				if err != nil {
 					log.Fatalln("failed to write secret", secretPath, err)
 				}
@@ -387,7 +387,7 @@ func secretFetcher(client *api.Client, c *configuration) {
 								continue
 							}
 
-							err = secretWriter(key.(string), secret.Data, filePayloads)
+							err = secretWriter(c, key.(string), secret.Data, filePayloads)
 							if err != nil {
 								log.Println("failed to write secret", constructedPath, err)
 								continue
@@ -421,15 +421,17 @@ func secretFetcher(client *api.Client, c *configuration) {
 	}
 }
 
-func secretWriter(keyName string, secretData map[string]interface{}, filePayload map[string]interface{}) error {
+func secretWriter(c *configuration, keyName string, secretData map[string]interface{}, filePayload map[string]interface{}) error {
 	// detect and fetch defaultKeyName
 	if secretData[defaultKeyName] != nil {
-		if filePayload != nil {
+		if c.secretPayloadPath != "" && filePayload != nil {
 			filePayload[keyName] = secretData[defaultKeyName].(string)
 		}
-		err := os.Setenv(strings.ToUpper(keyName), secretData[defaultKeyName].(string))
-		if err != nil {
-			return err
+		if c.secretEnv {
+			err := os.Setenv(strings.ToUpper(keyName), secretData[defaultKeyName].(string))
+			if err != nil {
+				return err
+			}
 		}
 		delete(secretData, defaultKeyName)
 	}
@@ -437,12 +439,14 @@ func secretWriter(keyName string, secretData map[string]interface{}, filePayload
 	// iterate over remaining map entries
 	for k, v := range secretData {
 		expandedKeyName := fmt.Sprintf("%s_%s", keyName, k)
-		if filePayload != nil {
+		if c.secretPayloadPath != "" && filePayload != nil {
 			filePayload[expandedKeyName] = v.(string)
 		}
-		err := os.Setenv(strings.ToUpper(expandedKeyName), v.(string))
-		if err != nil {
-			return err
+		if c.secretEnv {
+			err := os.Setenv(strings.ToUpper(expandedKeyName), v.(string))
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
