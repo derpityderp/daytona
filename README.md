@@ -26,7 +26,7 @@ The following authentication methods are supported:
 
 ## Secret Fetching
 
-`daytona ` gives you the ability to pre-fetch secrets upon launch and store them in environment variables and/or a specified JSON file after retrievial. The desired secrets are specified by providing environment variables prefixed with `VAULT_SECRET_` and their value set as the vault path on which the secret(s) can be accessed.
+`daytona ` gives you the ability to pre-fetch secrets upon launch and store them in environment variables and/or a specified JSON file after retrievial. The desired secrets are specified by providing environment variables prefixed with `VAULT_SECRET_` and their value set as the vault path on which the secret(s) can be accessed. Any unique value can be appended to `VAULT_SECRET_` in order to provide the ability to supply multiple secret paths. e.g. `VAULT_SECRET_APPLICATION=secret/application`, `VAULT_SECRET_COMMON=secret/infra/common`.
 
 #### Data and Secret Key Layout
 
