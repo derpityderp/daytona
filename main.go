@@ -33,7 +33,7 @@ type configuration struct {
 	iamAuthMount      string
 	k8sAuth           bool
 	iamAuth           bool
-	authRoleName      string
+	vaultAuthRoleName string
 	renewalThreshold  int64
 	renewalInterval   int64
 	secretPayloadPath string
@@ -67,7 +67,7 @@ func init() {
 		return err == nil && b
 	}(), "select AWS IAM vault auth as the vault authentication mechanism (env: IAM_AUTH)")
 	flag.StringVar(&config.k8sTokenPath, "k8s-token-path", buildDefaultConfigItem("K8S_TOKEN_PATH", "/var/run/secrets/kubernetes.io/serviceaccount/token"), "kubernetes service account jtw token path (env: K8S_TOKEN_PATH)")
-	flag.StringVar(&config.authRoleName, "auth-role", buildDefaultConfigItem("VAULT_AUTH_ROLE", ""), "the name of the role used for auth. used with either auth method (env: VAULT_AUTH_ROLE)")
+	flag.StringVar(&config.vaultAuthRoleName, "vault-auth-role", buildDefaultConfigItem("VAULT_AUTH_ROLE", ""), "the name of the role used for auth. used with either auth method (env: VAULT_AUTH_ROLE)")
 	flag.StringVar(&config.k8sAuthMount, "k8s-auth-mount", buildDefaultConfigItem("K8S_AUTH_MOUNT", "kubernetes"), "the vault mount where k8s auth takes place (env: K8S_AUTH_MOUNT)")
 	flag.StringVar(&config.iamAuthMount, "iam-auth-mount", buildDefaultConfigItem("IAM_AUTH_MOUNT", "aws"), "the vault mount where iam auth takes place (env: IAM_AUTH_MOUNT)")
 
@@ -115,8 +115,8 @@ func main() {
 		log.Fatalln("You cannot choose more than one auth method: -k8s-auth or -iam-auth")
 	}
 
-	if config.authRoleName == "" {
-		log.Fatalln("you must supply a role name via VAULT_AUTH_ROLE or -auth-role")
+	if config.vaultAuthRoleName == "" {
+		log.Fatalln("you must supply a role name via VAULT_AUTH_ROLE or -vault-auth-role")
 	}
 
 	fullTokenPath, err := homedir.Expand(config.tokenPath)
@@ -215,7 +215,7 @@ func kubernetesAuth(client *api.Client, c *configuration) (string, error) {
 	}
 	jwt := string(bytes.TrimSpace(data))
 	payload := map[string]interface{}{
-		"role": c.authRoleName,
+		"role": c.vaultAuthRoleName,
 		"jwt":  jwt,
 	}
 	path := fmt.Sprintf("auth/%s/login", config.k8sAuthMount)
@@ -252,7 +252,7 @@ func iamAuth(client *api.Client, c *configuration) (string, error) {
 	loginData["iam_request_url"] = base64.StdEncoding.EncodeToString([]byte(stsRequest.HTTPRequest.URL.String()))
 	loginData["iam_request_headers"] = base64.StdEncoding.EncodeToString(headersJSON)
 	loginData["iam_request_body"] = base64.StdEncoding.EncodeToString(requestBody)
-	loginData["role"] = c.authRoleName
+	loginData["role"] = c.vaultAuthRoleName
 
 	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", c.iamAuthMount), loginData)
 	if err != nil {

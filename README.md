@@ -164,7 +164,7 @@ as a representation of the following vault data:
 
 **AWS IAM Example (Written to file)**:
 
-`VAULT_SECRET_TEST=secret/infrastructure/applicationZ/secrets daytona -iam-auth -token-path /home/vault/.vault-token -auth-role vault-role-name -secret-path /home/vault/secrets`
+`VAULT_SECRET_TEST=secret/infrastructure/applicationZ/secrets daytona -iam-auth -token-path /home/vault/.vault-token -vault-auth-role vault-role-name -secret-path /home/vault/secrets`
 
 The execution example above (assuming a successful authentication) would yield a vault token at `/home/vault/.vault-token` and any specified secrects written to `/home/vault/secrets` as
 
@@ -190,7 +190,7 @@ as a representation of the following vault data:
 
 In a `Dockerfile`:
 ```
-ENTRYPOINT [ "./daytona", "-secret-env", "-iam-auth", "-auth-role", "vault-role-name", "-entrypoint", "--" ]
+ENTRYPOINT [ "./daytona", "-secret-env", "-iam-auth", "-vault-auth-role", "vault-role-name", "-entrypoint", "--" ]
 ```
 
 combined with supplying the follwing during a `docker run `:
@@ -228,7 +228,7 @@ as a representation of the following vault data:
 Usage of ./daytona:
   -address string
         (env: VAULT_ADDR) (default "https://vault.secure.car:8200")
-  -auth-role string
+  -vault-auth-role string
         the name of the role used for auth. used with either auth method (env: VAULT_AUTH_ROLE)
   -auto-renew
         if enabled, starts the token renewal service (env: AUTO_RENEW)
