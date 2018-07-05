@@ -1,6 +1,7 @@
 FROM golang:1.10.2 AS builder
 WORKDIR /go/src/app
 ADD . .
+RUN go test
 RUN \
   CGO_ENABLED=0 \
   GOOS=linux \

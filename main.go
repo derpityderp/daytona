@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -37,6 +38,7 @@ type configuration struct {
 	renewalInterval   int64
 	secretPayloadPath string
 	autoRenew         bool
+	entrypoint        bool
 }
 
 var config configuration
@@ -62,7 +64,7 @@ func init() {
 		return err == nil && b
 	}(), "select AWS IAM vault auth as the vault authentication mechanism (env: IAM_AUTH)")
 	flag.StringVar(&config.k8sTokenPath, "k8s-token-path", buildDefaultConfigItem("K8S_TOKEN_PATH", "/var/run/secrets/kubernetes.io/serviceaccount/token"), "kubernetes service account jtw token path (env: K8S_TOKEN_PATH)")
-	flag.StringVar(&config.authRoleName, "auth-role", buildDefaultConfigItem("AUTH_ROLE", ""), "the name of the role used for auth. used with either auth method (env: AUTH_ROLE)")
+	flag.StringVar(&config.authRoleName, "auth-role", buildDefaultConfigItem("VAULT_AUTH_ROLE", ""), "the name of the role used for auth. used with either auth method (env: VAULT_AUTH_ROLE)")
 	flag.StringVar(&config.k8sAuthMount, "k8s-auth-mount", buildDefaultConfigItem("K8S_AUTH_MOUNT", "kubernetes"), "the vault mount where k8s auth takes place (env: K8S_AUTH_MOUNT)")
 	flag.StringVar(&config.iamAuthMount, "iam-auth-mount", buildDefaultConfigItem("IAM_AUTH_MOUNT", "aws"), "the vault mount where iam auth takes place (env: IAM_AUTH_MOUNT)")
 
@@ -85,6 +87,10 @@ func init() {
 		b, err := strconv.ParseBool(buildDefaultConfigItem("AUTO_RENEW", "false"))
 		return err == nil && b
 	}(), "if enabled, starts the token renewal service (env: AUTO_RENEW)")
+	flag.BoolVar(&config.entrypoint, "entrypoint", func() bool {
+		b, err := strconv.ParseBool(buildDefaultConfigItem("ENTRYPOINT", "false"))
+		return err == nil && b
+	}(), "if enabled, execs the command after the separator (--) when done (env: ENTRYPOINT)")
 }
 
 func main() {
@@ -103,7 +109,7 @@ func main() {
 	}
 
 	if config.authRoleName == "" {
-		log.Fatalln("you must supply a role name via AUTH_ROLE or -auth-role")
+		log.Fatalln("you must supply a role name via VAULT_AUTH_ROLE or -auth-role")
 	}
 
 	fullTokenPath, err := homedir.Expand(config.tokenPath)
@@ -175,6 +181,19 @@ func main() {
 			}
 		}()
 		renewService(client, &config, (time.Second * time.Duration(config.renewalInterval)))
+	}
+
+	if config.entrypoint {
+		args := flag.Args()
+		log.Println("Will exec: ", args)
+		binary, err := exec.LookPath(args[0])
+		if err != nil {
+			log.Fatalf("Error finding '%s' to exec: %s\n", args[0], err)
+		}
+		err = syscall.Exec(binary, args, os.Environ())
+		if err != nil {
+			log.Fatalf("Error from exec: %s\n", err)
+		}
 	}
 }
 

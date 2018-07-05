@@ -125,3 +125,4 @@ Usage of ./daytona:
   -token-path string
         a full file path where a token will be read from/written to (env: TOKEN_PATH) (default "~/.vault-token"
 ```
+
