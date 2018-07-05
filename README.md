@@ -227,31 +227,31 @@ as a representation of the following vault data:
 ```
 Usage of ./daytona:
   -address string
-        (env: VAULT_ADDR) (default "https://vault.secure.car:8200")
-  -vault-auth-role string
-        the name of the role used for auth. used with either auth method (env: VAULT_AUTH_ROLE)
+    	(env: VAULT_ADDR) (default "https://vault.secure.car:8200")
   -auto-renew
-        if enabled, starts the token renewal service (env: AUTO_RENEW)
+    	if enabled, starts the token renewal service (env: AUTO_RENEW)
   -entrypoint
-        if enabled, execs the command after the separator (--) when done (env: ENTRYPOINT)
+    	if enabled, execs the command after the separator (--) when done. mostly useful with -secret-env (env: ENTRYPOINT)
   -iam-auth
-        select AWS IAM vault auth as the vault authentication mechanism (env: IAM_AUTH)
+    	select AWS IAM vault auth as the vault authentication mechanism (env: IAM_AUTH)
   -iam-auth-mount string
-        the vault mount where iam auth takes place (env: IAM_AUTH_MOUNT) (default "aws")
+    	the vault mount where iam auth takes place (env: IAM_AUTH_MOUNT) (default "aws")
   -k8s-auth
-        select kubernetes vault auth as the vault authentication mechanism (env: K8S_AUTH)
+    	select kubernetes vault auth as the vault authentication mechanism (env: K8S_AUTH)
   -k8s-auth-mount string
-        the vault mount where k8s auth takes place (env: K8S_AUTH_MOUNT) (default "kubernetes")
+    	the vault mount where k8s auth takes place (env: K8S_AUTH_MOUNT) (default "kubernetes")
   -k8s-token-path string
-        kubernetes service account jwt token path (env: K8S_TOKEN_PATH) (default "/var/run/secrets/kubernetes.io/serviceaccount/token")
+    	kubernetes service account jtw token path (env: K8S_TOKEN_PATH) (default "/var/run/secrets/kubernetes.io/serviceaccount/token")
   -renewal-interval int
-        how often to check the token's ttl and potentially renew it (env: RENEWAL_INTERVAL) (default 300)
+    	how often to check the token's ttl and potentially renew it (env: RENEWAL_INTERVAL) (default 300)
   -renewal-threshold int
-        the threshold remaining in the vault token, in seconds, after which it should be renewed (env: RENEWAL_THRESHOLD) (default 43200)
+    	the threshold remaining in the vault token, in seconds, after which it should be renewed (env: RENEWAL_THRESHOLD) (default 43200)
   -secret-env
-        write secrets to environment variables (env: SECRET_ENV)
+    	write secrets to environment variables (env: SECRET_ENV)
   -secret-path string
-        the full file path to store the JSON blob of the fetched secrets (env: SECRET_PATH)
+    	the full file path to store the JSON blob of the fetched secrets (env: SECRET_PATH)
   -token-path string
-        a full file path where a token will be read from/written to (env: TOKEN_PATH) (default "~/.vault-token")
+    	a full file path where a token will be read from/written to (env: TOKEN_PATH) (default "~/.vault-token")
+  -vault-auth-role string
+    	the name of the role used for auth. used with either auth method (env: VAULT_AUTH_ROLE)
 ```

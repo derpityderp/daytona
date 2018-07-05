@@ -93,7 +93,7 @@ func init() {
 	flag.BoolVar(&config.entrypoint, "entrypoint", func() bool {
 		b, err := strconv.ParseBool(buildDefaultConfigItem("ENTRYPOINT", "false"))
 		return err == nil && b
-	}(), "if enabled, execs the command after the separator (--) when done (env: ENTRYPOINT)")
+	}(), "if enabled, execs the command after the separator (--) when done. mostly useful with -secret-env (env: ENTRYPOINT)")
 	flag.BoolVar(&config.secretEnv, "secret-env", func() bool {
 		b, err := strconv.ParseBool(buildDefaultConfigItem("SECRET_ENV", "false"))
 		return err == nil && b
