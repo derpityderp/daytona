@@ -28,6 +28,10 @@ The following authentication methods are supported:
 
 `daytona ` gives you the ability to pre-fetch secrets upon launch and store them in environment variables and/or a specified JSON file after retrievial. The desired secrets are specified by providing environment variables prefixed with `VAULT_SECRET_` and their value set as the vault path on which the secret(s) can be accessed. Any unique value can be appended to `VAULT_SECRET_` in order to provide the ability to supply multiple secret paths. e.g. `VAULT_SECRET_APPLICATION=secret/application`, `VAULT_SECRET_COMMON=secret/infra/common`.
 
+#### Outputs
+
+Fetched secrets can be output to file in JSON format via the `-secret-path` flag or to enviornment variables via `-secret-env`. `-secret-env` is most commonly used with the `-entrypoint` flag so that any popoulated environment variables are passed to a provided executable.
+
 #### Data and Secret Key Layout
 
 `daytona` prefers secret data containing the key `value`, but is able to detect other key names (this decreases readability, as you'll see later below) For example:
