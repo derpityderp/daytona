@@ -33,13 +33,16 @@ type configuration struct {
 	iamAuthMount      string
 	k8sAuth           bool
 	iamAuth           bool
-	authRoleName      string
+	vaultAuthRoleName string
 	renewalThreshold  int64
 	renewalInterval   int64
 	secretPayloadPath string
+	secretEnv         bool
 	autoRenew         bool
 	entrypoint        bool
 }
+
+const defaultKeyName = "value"
 
 var config configuration
 
@@ -64,7 +67,7 @@ func init() {
 		return err == nil && b
 	}(), "select AWS IAM vault auth as the vault authentication mechanism (env: IAM_AUTH)")
 	flag.StringVar(&config.k8sTokenPath, "k8s-token-path", buildDefaultConfigItem("K8S_TOKEN_PATH", "/var/run/secrets/kubernetes.io/serviceaccount/token"), "kubernetes service account jtw token path (env: K8S_TOKEN_PATH)")
-	flag.StringVar(&config.authRoleName, "auth-role", buildDefaultConfigItem("VAULT_AUTH_ROLE", ""), "the name of the role used for auth. used with either auth method (env: VAULT_AUTH_ROLE)")
+	flag.StringVar(&config.vaultAuthRoleName, "vault-auth-role", buildDefaultConfigItem("VAULT_AUTH_ROLE", ""), "the name of the role used for auth. used with either auth method (env: VAULT_AUTH_ROLE)")
 	flag.StringVar(&config.k8sAuthMount, "k8s-auth-mount", buildDefaultConfigItem("K8S_AUTH_MOUNT", "kubernetes"), "the vault mount where k8s auth takes place (env: K8S_AUTH_MOUNT)")
 	flag.StringVar(&config.iamAuthMount, "iam-auth-mount", buildDefaultConfigItem("IAM_AUTH_MOUNT", "aws"), "the vault mount where iam auth takes place (env: IAM_AUTH_MOUNT)")
 
@@ -90,7 +93,11 @@ func init() {
 	flag.BoolVar(&config.entrypoint, "entrypoint", func() bool {
 		b, err := strconv.ParseBool(buildDefaultConfigItem("ENTRYPOINT", "false"))
 		return err == nil && b
-	}(), "if enabled, execs the command after the separator (--) when done (env: ENTRYPOINT)")
+	}(), "if enabled, execs the command after the separator (--) when done. mostly useful with -secret-env (env: ENTRYPOINT)")
+	flag.BoolVar(&config.secretEnv, "secret-env", func() bool {
+		b, err := strconv.ParseBool(buildDefaultConfigItem("SECRET_ENV", "false"))
+		return err == nil && b
+	}(), "write secrets to environment variables (env: SECRET_ENV)")
 }
 
 func main() {
@@ -108,8 +115,8 @@ func main() {
 		log.Fatalln("You cannot choose more than one auth method: -k8s-auth or -iam-auth")
 	}
 
-	if config.authRoleName == "" {
-		log.Fatalln("you must supply a role name via VAULT_AUTH_ROLE or -auth-role")
+	if config.vaultAuthRoleName == "" {
+		log.Fatalln("you must supply a role name via VAULT_AUTH_ROLE or -vault-auth-role")
 	}
 
 	fullTokenPath, err := homedir.Expand(config.tokenPath)
@@ -136,7 +143,7 @@ func main() {
 	authTicker := time.Tick(time.Second * 1)
 	for {
 		if authenticated {
-			log.Println("found a valid auth token, continuing")
+			log.Println("found a valid vault token, continuing")
 			break
 		}
 		log.Println("checking for an existing, valid vault token")
@@ -148,7 +155,7 @@ func main() {
 				authenticate(client, &config)
 				continue
 			}
-			log.Println("found and existing token at", config.tokenPath)
+			log.Println("found an existing token at", config.tokenPath)
 			vaultToken = string(fileToken)
 			client.SetToken(string(vaultToken))
 		}
@@ -166,7 +173,7 @@ func main() {
 
 	secretFetcher(client, &config)
 	if config.autoRenew {
-		// if you send USR1, we'll re-fetch seekrits
+		// if you send USR1, we'll re-fetch secrets
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan,
 			syscall.SIGUSR1)
@@ -208,7 +215,7 @@ func kubernetesAuth(client *api.Client, c *configuration) (string, error) {
 	}
 	jwt := string(bytes.TrimSpace(data))
 	payload := map[string]interface{}{
-		"role": c.authRoleName,
+		"role": c.vaultAuthRoleName,
 		"jwt":  jwt,
 	}
 	path := fmt.Sprintf("auth/%s/login", config.k8sAuthMount)
@@ -245,7 +252,7 @@ func iamAuth(client *api.Client, c *configuration) (string, error) {
 	loginData["iam_request_url"] = base64.StdEncoding.EncodeToString([]byte(stsRequest.HTTPRequest.URL.String()))
 	loginData["iam_request_headers"] = base64.StdEncoding.EncodeToString(headersJSON)
 	loginData["iam_request_body"] = base64.StdEncoding.EncodeToString(requestBody)
-	loginData["role"] = c.authRoleName
+	loginData["role"] = c.vaultAuthRoleName
 
 	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", c.iamAuthMount), loginData)
 	if err != nil {
@@ -315,49 +322,132 @@ func renewService(client *api.Client, c *configuration, interval time.Duration) 
 }
 
 func secretFetcher(client *api.Client, c *configuration) {
-	log.Println("starting secret fetch")
-	if c.secretPayloadPath == "" {
-		log.Println("no secret payload path was provided, will not write secrets to disk")
+	filePayloads := make(map[string]interface{})
+	if c.secretPayloadPath == "" && !c.secretEnv {
+		log.Println("no secret storage method was provided, will not attempt to retrieve secrets")
 		return
 	}
-	if f, err := os.Stat(c.secretPayloadPath); err == nil {
-		if f.IsDir() {
-			log.Println("the token path you provided is a directory, please supply a full file path")
-			return
+	if c.secretPayloadPath != "" {
+		if f, err := os.Stat(c.secretPayloadPath); err == nil {
+			if f.IsDir() {
+				log.Println("the secret path you provided is a directory, please supply a full file path")
+				return
+			}
 		}
+	} else {
+		filePayloads = nil
 	}
-	payloads := make(map[string]interface{})
+
+	log.Println("starting secret fetch")
+
 	envs := os.Environ()
 	for _, v := range envs {
 		pair := strings.Split(v, "=")
-		if strings.HasPrefix(pair[0], "VAULT_SECRET_") {
-			x := os.Getenv(pair[0])
-			if x == "" {
+		envKey := pair[0]
+		if strings.HasPrefix(envKey, "VAULT_SECRET_") {
+			secretPath := os.Getenv(envKey)
+			if secretPath == "" {
 				continue
 			}
-			secret, err := client.Logical().Read(x)
+
+			secret, err := client.Logical().Read(secretPath)
 			if err != nil {
-				log.Println(fmt.Sprintf("failed retrieving secret %s: %s", x, err.Error()))
-				continue
+				log.Fatalln(fmt.Sprintf("there was a problem fetching %s: %s", secretPath, err))
 			}
-			payloads[x] = secret.Data
+			if secret != nil {
+				log.Println("direct secret path detected")
+
+				splitPath := strings.Split(secretPath, "/")
+				keyName := splitPath[len(splitPath)-1]
+
+				err = secretWriter(c, keyName, secret.Data, filePayloads)
+				if err != nil {
+					log.Fatalln("failed to write secret", secretPath, err)
+				}
+			} else {
+				// if the inital secret result is nil, check to see if it is
+				// a top-level path that needs iteration
+				list, err := client.Logical().List(secretPath)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				if list != nil {
+					log.Println("starting iteration on", secretPath)
+					for _, data := range list.Data {
+						for _, key := range data.([]interface{}) {
+							constructedPath := fmt.Sprintf("%s/%s", secretPath, key)
+							secret, err := client.Logical().Read(constructedPath)
+							if err != nil {
+								log.Println(fmt.Sprintf("failed retrieving secret %s: %s", constructedPath, err.Error()))
+								continue
+							}
+							if secret == nil {
+								log.Println(constructedPath, "did not return a payload, no further iteration will occur on this path")
+								continue
+							}
+
+							err = secretWriter(c, key.(string), secret.Data, filePayloads)
+							if err != nil {
+								log.Println("failed to write secret", constructedPath, err)
+								continue
+							}
+						}
+					}
+				} else {
+					log.Println("couldn't list either, giving up on", secretPath)
+				}
+			}
 		}
 	}
 
-	if len(payloads) == 0 {
-		log.Println("could not find any environment variables prefixed with VAULT_SECRET_")
-		return
+	// write the file, if necessary
+	if filePayloads != nil {
+		if len(filePayloads) == 0 {
+			log.Println("no secrets to write to disk")
+			return
+		}
+		payloadJSON, err := json.Marshal(filePayloads)
+		if err != nil {
+			log.Println("failed to convert secrets payload to json", err.Error())
+			return
+		}
+		err = ioutil.WriteFile(config.secretPayloadPath, payloadJSON, 0600)
+		if err != nil {
+			log.Println("could not write secrets to file", config.secretPayloadPath, err)
+			return
+		}
+		log.Println(fmt.Sprintf("wrote %d secrets to %s", len(filePayloads), config.secretPayloadPath))
 	}
-	// write the file
-	payloadJSON, err := json.Marshal(payloads)
-	if err != nil {
-		log.Println("failed to convert secrets payload to json", err.Error())
-		return
+}
+
+func secretWriter(c *configuration, keyName string, secretData map[string]interface{}, filePayload map[string]interface{}) error {
+	// detect and fetch defaultKeyName
+	if secretData[defaultKeyName] != nil {
+		if c.secretPayloadPath != "" && filePayload != nil {
+			filePayload[keyName] = secretData[defaultKeyName].(string)
+		}
+		if c.secretEnv {
+			err := os.Setenv(strings.ToUpper(keyName), secretData[defaultKeyName].(string))
+			if err != nil {
+				return err
+			}
+		}
+		delete(secretData, defaultKeyName)
 	}
-	err = ioutil.WriteFile(config.secretPayloadPath, payloadJSON, 0600)
-	if err != nil {
-		log.Println("could not write secrets to file", config.secretPayloadPath, err)
-		return
+
+	// iterate over remaining map entries
+	for k, v := range secretData {
+		expandedKeyName := fmt.Sprintf("%s_%s", keyName, k)
+		if c.secretPayloadPath != "" && filePayload != nil {
+			filePayload[expandedKeyName] = v.(string)
+		}
+		if c.secretEnv {
+			err := os.Setenv(strings.ToUpper(expandedKeyName), v.(string))
+			if err != nil {
+				return err
+			}
+		}
 	}
-	log.Println(fmt.Sprintf("wrote %d secrets to %s", len(payloads), config.secretPayloadPath))
+	return nil
 }
