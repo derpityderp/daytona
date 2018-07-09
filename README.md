@@ -26,11 +26,11 @@ The following authentication methods are supported:
 
 ## Secret Fetching
 
-`daytona ` gives you the ability to pre-fetch secrets upon launch and store them in environment variables and/or a specified JSON file after retrievial. The desired secrets are specified by providing environment variables prefixed with `VAULT_SECRET_` and their value set as the vault path on which the secret(s) can be accessed. Any unique value can be appended to `VAULT_SECRET_` in order to provide the ability to supply multiple secret paths. e.g. `VAULT_SECRET_APPLICATION=secret/application`, `VAULT_SECRET_COMMON=secret/infra/common`.
+`daytona ` gives you the ability to pre-fetch secrets upon launch and store them in environment variables and/or a specified JSON file after retrievial. The desired secrets are specified by providing environment variables prefixed with `VAULT_SECRET_` and their value set as the vault path on which the secret can be accessed, or `VAULT_SECRETS_` with a path from which all secrets should be loaded. Any unique value can be appended to `VAULT_SECRET_` in order to provide the ability to supply multiple secret paths. e.g. `VAULT_SECRETS_APPLICATION=secret/application/my-team/sandbox/my-project`, `VAULT_SECRETS_COMMON=secret/infra/common`, `VAULT_SECRET_1=secret/application/my-team/shared/DATADOG_API_KEY`.
 
 #### Outputs
 
-Fetched secrets can be output to file in JSON format via the `-secret-path` flag or to enviornment variables via `-secret-env`. `-secret-env` is most commonly used with the `-entrypoint` flag so that any popoulated environment variables are passed to a provided executable.
+Fetched secrets can be output to file in JSON format via the `-secret-path` flag or to enviornment variables via `-secret-env`. `-secret-env` will have no effect unless used with the `-entrypoint` flag so that any popoulated environment variables are passed to a provided executable.
 
 #### Data and Secret Key Layout
 
@@ -124,9 +124,9 @@ spec:
       value: vault-role-name
     - name: SECRET_PATH
       value: /home/vault/secrets
-    - name: VAULT_SECRET_APP
+    - name: VAULT_SECRETS_APP
       value: secret/infrastructure/applicationZ
-    - name: VAULT_SECRET_GLOBAL
+    - name: VAULT_SECRETS_GLOBAL
       value: secret/infrastructure/global/metrics
 ````
 
@@ -168,7 +168,7 @@ as a representation of the following vault data:
 
 **AWS IAM Example (Written to file)**:
 
-`VAULT_SECRET_TEST=secret/infrastructure/applicationZ/secrets daytona -iam-auth -token-path /home/vault/.vault-token -vault-auth-role vault-role-name -secret-path /home/vault/secrets`
+`VAULT_SECRETS_TEST=secret/infrastructure/applicationZ/secrets daytona -iam-auth -token-path /home/vault/.vault-token -vault-auth-role vault-role-name -secret-path /home/vault/secrets`
 
 The execution example above (assuming a successful authentication) would yield a vault token at `/home/vault/.vault-token` and any specified secrects written to `/home/vault/secrets` as
 
@@ -199,7 +199,7 @@ ENTRYPOINT [ "./daytona", "-secret-env", "-iam-auth", "-vault-auth-role", "vault
 
 combined with supplying the follwing during a `docker run `:
 
-`-e "VAULT_SECRET_APP=secret/infrastructure/applicationZ"`
+`-e "VAULT_SECRETS_APP=secret/infrastructure/applicationZ"`
 
 would yield the following environment variables in a container:
 ```

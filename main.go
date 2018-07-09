@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -25,7 +27,7 @@ import (
 	homedir "github.com/mitchellh/go-homedir"
 )
 
-type configuration struct {
+var config struct {
 	vaultAddress      string
 	tokenPath         string
 	k8sTokenPath      string
@@ -43,8 +45,6 @@ type configuration struct {
 }
 
 const defaultKeyName = "value"
-
-var config configuration
 
 // buildDefaultConfigItem uses the following operation: ENV --> arg
 func buildDefaultConfigItem(envKey string, def string) (val string) {
@@ -114,7 +114,6 @@ func main() {
 	if config.k8sAuth && config.iamAuth {
 		log.Fatalln("You cannot choose more than one auth method: -k8s-auth or -iam-auth")
 	}
-
 	if config.vaultAuthRoleName == "" {
 		log.Fatalln("you must supply a role name via VAULT_AUTH_ROLE or -vault-auth-role")
 	}
@@ -129,6 +128,14 @@ func main() {
 		if f.IsDir() {
 			log.Println("the token path you provided is a directory, automatically appending .vault-token filename")
 			config.tokenPath = filepath.Join(config.tokenPath, ".vault-token")
+		}
+	}
+
+	if config.secretPayloadPath != "" {
+		if f, err := os.Stat(config.secretPayloadPath); err == nil {
+			if f.IsDir() {
+				log.Fatalln("the secret path you provided is a directory, please supply a full file path")
+			}
 		}
 	}
 
@@ -152,7 +159,7 @@ func main() {
 			fileToken, err := ioutil.ReadFile(config.tokenPath)
 			if err != nil {
 				log.Println("can't read an existing token at", config.tokenPath, "starting authentication")
-				authenticate(client, &config)
+				authenticate(client)
 				continue
 			}
 			log.Println("found an existing token at", config.tokenPath)
@@ -163,7 +170,7 @@ func main() {
 		_, err := client.Auth().Token().LookupSelf()
 		if err != nil {
 			log.Println("invalid token", err)
-			authenticate(client, &config)
+			authenticate(client)
 			continue
 		} else {
 			authenticated = true
@@ -171,7 +178,7 @@ func main() {
 		<-authTicker
 	}
 
-	secretFetcher(client, &config)
+	secretFetcher(client)
 	if config.autoRenew {
 		// if you send USR1, we'll re-fetch secrets
 		sigChan := make(chan os.Signal, 1)
@@ -183,11 +190,11 @@ func main() {
 				s := <-sigChan
 				switch s {
 				case syscall.SIGUSR1:
-					secretFetcher(client, &config)
+					secretFetcher(client)
 				}
 			}
 		}()
-		renewService(client, &config, (time.Second * time.Duration(config.renewalInterval)))
+		renewService(client, (time.Second * time.Duration(config.renewalInterval)))
 	}
 
 	if config.entrypoint {
@@ -204,18 +211,18 @@ func main() {
 	}
 }
 
-func kubernetesAuth(client *api.Client, c *configuration) (string, error) {
-	if c.k8sTokenPath == "" {
+func kubernetesAuth(client *api.Client) (string, error) {
+	if config.k8sTokenPath == "" {
 		return "", fmt.Errorf("kubernetes auth token path is mssing")
 	}
 
-	data, err := ioutil.ReadFile(c.k8sTokenPath)
+	data, err := ioutil.ReadFile(config.k8sTokenPath)
 	if err != nil {
 		return "", fmt.Errorf("could not read JWT from file %s", err.Error())
 	}
 	jwt := string(bytes.TrimSpace(data))
 	payload := map[string]interface{}{
-		"role": c.vaultAuthRoleName,
+		"role": config.vaultAuthRoleName,
 		"jwt":  jwt,
 	}
 	path := fmt.Sprintf("auth/%s/login", config.k8sAuthMount)
@@ -227,7 +234,7 @@ func kubernetesAuth(client *api.Client, c *configuration) (string, error) {
 	return secret.Auth.ClientToken, nil
 }
 
-func iamAuth(client *api.Client, c *configuration) (string, error) {
+func iamAuth(client *api.Client) (string, error) {
 	loginData := make(map[string]interface{})
 	stsSession, err := session.NewSession(&aws.Config{
 		MaxRetries: aws.Int(5),
@@ -252,28 +259,28 @@ func iamAuth(client *api.Client, c *configuration) (string, error) {
 	loginData["iam_request_url"] = base64.StdEncoding.EncodeToString([]byte(stsRequest.HTTPRequest.URL.String()))
 	loginData["iam_request_headers"] = base64.StdEncoding.EncodeToString(headersJSON)
 	loginData["iam_request_body"] = base64.StdEncoding.EncodeToString(requestBody)
-	loginData["role"] = c.vaultAuthRoleName
+	loginData["role"] = config.vaultAuthRoleName
 
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", c.iamAuthMount), loginData)
+	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", config.iamAuthMount), loginData)
 	if err != nil {
 		return "", fmt.Errorf("could not login %s", err.Error())
 	}
 	return secret.Auth.ClientToken, nil
 }
 
-func authenticate(client *api.Client, c *configuration) bool {
+func authenticate(client *api.Client) bool {
 	var vaultToken string
 	var err error
 
 	switch {
-	case c.k8sAuth:
-		vaultToken, err = kubernetesAuth(client, c)
+	case config.k8sAuth:
+		vaultToken, err = kubernetesAuth(client)
 		if err != nil {
 			log.Println("error,", err.Error())
 			return false
 		}
-	case c.iamAuth:
-		vaultToken, err = iamAuth(client, c)
+	case config.iamAuth:
+		vaultToken, err = iamAuth(client)
 		if err != nil {
 			log.Println("error,", err.Error())
 			return false
@@ -294,7 +301,7 @@ func authenticate(client *api.Client, c *configuration) bool {
 	return true
 }
 
-func renewService(client *api.Client, c *configuration, interval time.Duration) {
+func renewService(client *api.Client, interval time.Duration) {
 	log.Println("starting the token renewer service on interval", interval)
 	ticker := time.Tick(interval)
 	for {
@@ -303,8 +310,8 @@ func renewService(client *api.Client, c *configuration, interval time.Duration) 
 			log.Fatalln("the existing token failed renewal, exiting..")
 		}
 		ttl, err := result.TokenTTL()
-		if ttl.Seconds() < float64(c.renewalThreshold) {
-			fmt.Println("renewing: token ttl of", ttl.Seconds(), "is below threshold of ", c.renewalThreshold)
+		if ttl.Seconds() < float64(config.renewalThreshold) {
+			fmt.Println("renewing: token ttl of", ttl.Seconds(), "is below threshold of ", config.renewalThreshold)
 			secret, err := client.Auth().Token().RenewSelf(46800)
 			if err != nil {
 				log.Println("failed to renew the existing token:", err)
@@ -315,123 +322,142 @@ func renewService(client *api.Client, c *configuration, interval time.Duration) 
 				log.Println("could not write token to file", config.tokenPath, err.Error())
 			}
 		} else {
-			log.Println(fmt.Sprintf("existing token ttl of %d seconds is still above the threshold (%d), skipping renewal", int64(ttl.Seconds()), c.renewalThreshold))
+			log.Println(fmt.Sprintf("existing token ttl of %d seconds is still above the threshold (%d), skipping renewal", int64(ttl.Seconds()), config.renewalThreshold))
 		}
 		<-ticker
 	}
 }
 
-func secretFetcher(client *api.Client, c *configuration) {
-	filePayloads := make(map[string]interface{})
-	if c.secretPayloadPath == "" && !c.secretEnv {
-		log.Println("no secret storage method was provided, will not attempt to retrieve secrets")
+func secretFetcher(client *api.Client) {
+	if config.secretPayloadPath == "" && !config.secretEnv {
+		log.Println("no secret output method was configured, will not attempt to retrieve secrets")
 		return
 	}
-	if c.secretPayloadPath != "" {
-		if f, err := os.Stat(c.secretPayloadPath); err == nil {
-			if f.IsDir() {
-				log.Println("the secret path you provided is a directory, please supply a full file path")
-				return
-			}
-		}
-	} else {
-		filePayloads = nil
-	}
-
 	log.Println("starting secret fetch")
 
+	secrets := make(map[string]string)
 	envs := os.Environ()
 	for _, v := range envs {
 		pair := strings.Split(v, "=")
 		envKey := pair[0]
+		secretPath := os.Getenv(envKey)
+		if secretPath == "" {
+			continue
+		}
+		// Single secret
 		if strings.HasPrefix(envKey, "VAULT_SECRET_") {
-			secretPath := os.Getenv(envKey)
-			if secretPath == "" {
-				continue
-			}
-
 			secret, err := client.Logical().Read(secretPath)
 			if err != nil {
-				log.Fatalln(fmt.Sprintf("there was a problem fetching %s: %s", secretPath, err))
+				log.Fatalf("there was a problem fetching %s: %s\n", secretPath, err)
 			}
-			if secret != nil {
-				log.Println("direct secret path detected")
+			if secret == nil {
+				log.Fatalf("secret not found: %s\n", secretPath)
+			}
+			log.Println("Found secret: ", secretPath)
 
-				splitPath := strings.Split(secretPath, "/")
-				keyName := splitPath[len(splitPath)-1]
+			splitPath := strings.Split(secretPath, "/")
+			keyName := splitPath[len(splitPath)-1]
 
-				err = secretWriter(c, keyName, secret.Data, filePayloads)
-				if err != nil {
-					log.Fatalln("failed to write secret", secretPath, err)
+			err = addSecrets(secrets, keyName, secret.Data)
+			if err != nil {
+				log.Fatalln(err)
+			}
+		}
+		// Path containing multiple secrets
+		if strings.HasPrefix(envKey, "VAULT_SECRETS_") {
+			list, err := client.Logical().List(secretPath)
+			if err != nil {
+				log.Fatalf("there was a problem listing %s: %s\n", secretPath, err)
+			}
+			if list == nil || len(list.Data) == 0 {
+				log.Fatalf("no secrets found under: %s\n", secretPath)
+			}
+			log.Println("starting iteration on", secretPath)
+			// list.Data is like: map[string]interface {}{"keys":[]interface {}{"DATADOG_API_KEY", "DATADOG_APPLICATION_KEY", "PG_PASS"}}
+			keys, ok := list.Data["keys"].([]interface{})
+			if !ok {
+				log.Fatalf("Unexpected list.Data format: %#v\n", list.Data)
+			}
+			for _, k := range keys {
+				key, ok := k.(string)
+				if !ok {
+					log.Fatalf("Non-string secret name: %#v\n", key)
 				}
-			} else {
-				// if the inital secret result is nil, check to see if it is
-				// a top-level path that needs iteration
-				list, err := client.Logical().List(secretPath)
+				constructedPath := path.Join(secretPath, key)
+				secret, err := client.Logical().Read(constructedPath)
 				if err != nil {
-					log.Println(err)
-					continue
+					log.Fatalf("failed retrieving secret %s: %s\n", constructedPath, err)
 				}
-				if list != nil {
-					log.Println("starting iteration on", secretPath)
-					for _, data := range list.Data {
-						for _, key := range data.([]interface{}) {
-							constructedPath := fmt.Sprintf("%s/%s", secretPath, key)
-							secret, err := client.Logical().Read(constructedPath)
-							if err != nil {
-								log.Println(fmt.Sprintf("failed retrieving secret %s: %s", constructedPath, err.Error()))
-								continue
-							}
-							if secret == nil {
-								log.Println(constructedPath, "did not return a payload, no further iteration will occur on this path")
-								continue
-							}
-
-							err = secretWriter(c, key.(string), secret.Data, filePayloads)
-							if err != nil {
-								log.Println("failed to write secret", constructedPath, err)
-								continue
-							}
-						}
-					}
-				} else {
-					log.Println("couldn't list either, giving up on", secretPath)
+				if secret == nil {
+					log.Fatalf("vault listed a secret '%s', but got not-found trying to read it at '%s'; very strange\n", key, constructedPath)
+				}
+				err = addSecrets(secrets, key, secret.Data)
+				if err != nil {
+					log.Fatalln(err)
 				}
 			}
 		}
 	}
 
-	// write the file, if necessary
-	if filePayloads != nil {
-		if len(filePayloads) == 0 {
-			log.Println("no secrets to write to disk")
-			return
-		}
-		payloadJSON, err := json.Marshal(filePayloads)
+	if config.secretPayloadPath != "" {
+		err := writeJSONSecrets(secrets, config.secretPayloadPath)
 		if err != nil {
-			log.Println("failed to convert secrets payload to json", err.Error())
-			return
+			log.Fatalln(err)
 		}
-		err = ioutil.WriteFile(config.secretPayloadPath, payloadJSON, 0600)
+	}
+	if config.secretEnv {
+		err := setEnvSecrets(secrets)
 		if err != nil {
-			log.Println("could not write secrets to file", config.secretPayloadPath, err)
-			return
+			log.Fatalln(err)
 		}
-		log.Println(fmt.Sprintf("wrote %d secrets to %s", len(filePayloads), config.secretPayloadPath))
 	}
 }
 
-func secretWriter(c *configuration, keyName string, secretData map[string]interface{}, filePayload map[string]interface{}) error {
+func writeJSONSecrets(secrets map[string]string, filepath string) error {
+	payloadJSON, err := json.Marshal(secrets)
+	if err != nil {
+		return fmt.Errorf("failed to convert secrets payload to json: %s", err)
+	}
+	err = ioutil.WriteFile(filepath, payloadJSON, 0600)
+	if err != nil {
+		return fmt.Errorf("could not write secrets to file '%s': %s", filepath, err)
+	}
+	log.Printf("wrote %d secrets to %s\n", len(secrets), filepath)
+	return nil
+}
+
+func setEnvSecrets(secrets map[string]string) error {
+	for k, v := range secrets {
+		err := os.Setenv(k, v)
+		if err != nil {
+			return fmt.Errorf("Error from os.Setenv: %s", err)
+		}
+		log.Println("Set env var", k)
+	}
+	return nil
+}
+
+func addSecret(secrets map[string]string, k string, v interface{}) error {
+	if secrets[k] != "" {
+		return errors.New("Duplicate secret name: " + k)
+	}
+	s, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("Secret '%s' has non-string value: %#v", k, v)
+	}
+	secrets[k] = s
+	return nil
+}
+
+func addSecrets(secrets map[string]string, keyName string, secretData map[string]interface{}) error {
+	// Return last error encountered during processing, if any
+	var lastErr error
+
 	// detect and fetch defaultKeyName
 	if secretData[defaultKeyName] != nil {
-		if c.secretPayloadPath != "" && filePayload != nil {
-			filePayload[keyName] = secretData[defaultKeyName].(string)
-		}
-		if c.secretEnv {
-			err := os.Setenv(strings.ToUpper(keyName), secretData[defaultKeyName].(string))
-			if err != nil {
-				return err
-			}
+		err := addSecret(secrets, keyName, secretData[defaultKeyName])
+		if err != nil {
+			lastErr = err
 		}
 		delete(secretData, defaultKeyName)
 	}
@@ -439,15 +465,10 @@ func secretWriter(c *configuration, keyName string, secretData map[string]interf
 	// iterate over remaining map entries
 	for k, v := range secretData {
 		expandedKeyName := fmt.Sprintf("%s_%s", keyName, k)
-		if c.secretPayloadPath != "" && filePayload != nil {
-			filePayload[expandedKeyName] = v.(string)
-		}
-		if c.secretEnv {
-			err := os.Setenv(strings.ToUpper(expandedKeyName), v.(string))
-			if err != nil {
-				return err
-			}
+		err := addSecret(secrets, expandedKeyName, v)
+		if err != nil {
+			lastErr = err
 		}
 	}
-	return nil
+	return lastErr
 }
