@@ -1,5 +1,4 @@
 machine:
-  environment:
   services:
     - docker
 
@@ -10,3 +9,8 @@ dependencies:
 test:
   override:
     - ./tools.sh docker/build
+  post:
+    - docker login -u _json_key -p "$GCR_KEY_JSON" https://gcr.io
+    - ./tools.sh docker/build:
+        environment:
+          DOCKER_REGISTRY: gcr.io/cruise-gcr-prod

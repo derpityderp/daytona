@@ -10,7 +10,7 @@ set -eu -o pipefail
 # shellcheck disable=SC1091
 . tools_config.sh
 
-# Set this during development to ignore SRE_TOOLS_VERSION and use your local checkout 
+# Set this during development to ignore SRE_TOOLS_VERSION and use your local checkout
 # under $USE_LOCAL, e.g. if you have ~/sre-tools then: USE_LOCAL=~ ./tools.sh ...
 USE_LOCAL=${USE_LOCAL:-""}
 
@@ -71,6 +71,6 @@ fi
 
 CMD=$1
 shift
-
+# "${@:1}" is <args> in  `./tools.sh <command> <args>`
 # shellcheck disable=SC1090
-. "$CACHE_DIR/sre-tools/$CMD.sh"
+. "$CACHE_DIR/sre-tools/$CMD.sh" "${@:1}"
