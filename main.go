@@ -22,7 +22,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
-	"github.com/fatih/color"
+	"github.com/cenkalti/backoff"
 	"github.com/hashicorp/vault/api"
 	homedir "github.com/mitchellh/go-homedir"
 )
@@ -42,9 +42,11 @@ var config struct {
 	secretEnv         bool
 	autoRenew         bool
 	entrypoint        bool
+	infinteAuth       bool
 }
 
 const defaultKeyName = "value"
+const version = "0.0.1"
 
 // buildDefaultConfigItem uses the following operation: ENV --> arg
 func buildDefaultConfigItem(envKey string, def string) (val string) {
@@ -98,6 +100,10 @@ func init() {
 		b, err := strconv.ParseBool(buildDefaultConfigItem("SECRET_ENV", "false"))
 		return err == nil && b
 	}(), "write secrets to environment variables (env: SECRET_ENV)")
+	flag.BoolVar(&config.infinteAuth, "infinite-auth", func() bool {
+		b, err := strconv.ParseBool(buildDefaultConfigItem("INFINITE_AUTH", "false"))
+		return err == nil && b
+	}(), "infinitely attempt to authenticate (env: INFINITE_AUTH)")
 }
 
 func main() {
@@ -106,6 +112,7 @@ func main() {
 		config.vaultAddress = addr
 	}
 
+	log.SetPrefix("DAYTONA - ")
 	flag.Parse()
 
 	if !config.k8sAuth && !config.iamAuth {
@@ -139,16 +146,24 @@ func main() {
 		}
 	}
 
+	log.Println(fmt.Sprintf("DAYTONA - %s", version))
 	client, err := api.NewClient(&api.Config{Address: config.vaultAddress})
 	if err != nil {
-		color.Red("Could not configure vault client. error: %s", err)
-		return
+		log.Fatalf("Could not configure vault client. error: %s", err)
 	}
 
 	var authenticated bool
 	var vaultToken string
-	authTicker := time.Tick(time.Second * 1)
-	for {
+
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxInterval = time.Second * 15
+	if config.infinteAuth {
+		bo.MaxElapsedTime = 0
+	} else {
+		bo.MaxElapsedTime = time.Minute * 5
+	}
+	authTicker := backoff.NewTicker(bo)
+	for _ = range authTicker.C {
 		if authenticated {
 			log.Println("found a valid vault token, continuing")
 			break
@@ -175,7 +190,10 @@ func main() {
 		} else {
 			authenticated = true
 		}
-		<-authTicker
+	}
+
+	if !config.infinteAuth && !authenticated {
+		log.Fatalln("infinite authentication attempts are not enalbed and the maximum elapsed time has been reached for authentication attempts. exiting.")
 	}
 
 	secretFetcher(client)
