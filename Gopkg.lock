@@ -2,6 +2,14 @@
 
 
 [[projects]]
+  digest = "1:5c3894b2aa4d6bead0ceeea6831b305d62879c871780e7b76296ded1b004bc57"
+  name = "cloud.google.com/go"
+  packages = ["compute/metadata"]
+  pruneopts = "UT"
+  revision = "debcad1964693daf8ef4bc06292d7e828e075130"
+  version = "v0.31.0"
+
+[[projects]]
   digest = "1:ce4cda4d792ca2c16e0dd154a77c1bf1a872f1552d991699b69a4226ef8fe9c6"
   name = "github.com/aws/aws-sdk-go"
   packages = [
@@ -53,6 +61,14 @@
   version = "v1.37.0"
 
 [[projects]]
+  digest = "1:97df918963298c287643883209a2c3f642e6593379f97ab400c2a2e219ab647d"
+  name = "github.com/golang/protobuf"
+  packages = ["proto"]
+  pruneopts = "UT"
+  revision = "aa810b61a9c79d51363740d207bb46cf8e620ed5"
+  version = "v1.2.0"
+
+[[projects]]
   branch = "master"
   digest = "1:4a0c6bb4805508a6287675fac876be2ac1182539ca8a32468d8128882e9d5009"
   name = "github.com/golang/snappy"
@@ -75,6 +91,14 @@
   packages = ["."]
   pruneopts = "UT"
   revision = "d5fe4b57a186c716b0e00b8c301cbd9b4182694d"
+
+[[projects]]
+  branch = "master"
+  digest = "1:33e5020ee072c7859240efaaba71d69eed889a19eaeb0f4ee8dc7a1f0c1afee4"
+  name = "github.com/hashicorp/go-gcp-common"
+  packages = ["gcputil"]
+  pruneopts = "UT"
+  revision = "763e39302965f115fba738b409b320563267b8df"
 
 [[projects]]
   branch = "master"
@@ -174,10 +198,23 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:744c660df137698628b28f30474e61775bc777adacf8b751c160748be01f17f5"
+  digest = "1:b8fa1ff0fc20983395978b3f771bb10438accbfe19326b02e236c1d4bf1c91b2"
+  name = "golang.org/x/crypto"
+  packages = [
+    "ed25519",
+    "ed25519/internal/edwards25519",
+    "pbkdf2",
+  ]
+  pruneopts = "UT"
+  revision = "4d3f4d9ffa16a13f451c3b2999e9c49e9750bf06"
+
+[[projects]]
+  branch = "master"
+  digest = "1:3b92c284a0951bf9827617648e6875a247ee457a61280033a0449bf682cd1047"
   name = "golang.org/x/net"
   packages = [
     "context",
+    "context/ctxhttp",
     "http/httpguts",
     "http2",
     "http2/hpack",
@@ -185,6 +222,20 @@
   ]
   pruneopts = "UT"
   revision = "afe8f62b1d6bbd81f31868121a50b06d8188e1f9"
+
+[[projects]]
+  branch = "master"
+  digest = "1:22eff6cd87806ec9d46cd5a365acaa14678b4538a48c82af57d454c1fe419c50"
+  name = "golang.org/x/oauth2"
+  packages = [
+    ".",
+    "google",
+    "internal",
+    "jws",
+    "jwt",
+  ]
+  pruneopts = "UT"
+  revision = "c453e0c757598fd055e170a3a359263c91e13153"
 
 [[projects]]
   digest = "1:a2ab62866c75542dd18d2b069fec854577a20211d7c0ea6ae746072a1dccdd18"
@@ -217,6 +268,52 @@
   pruneopts = "UT"
   revision = "fbb02b2291d28baffd63558aa44b4b56f178d650"
 
+[[projects]]
+  branch = "master"
+  digest = "1:37c51bc86899dd63970b8aa212d69ed76d9bb18f6e62132f47ff86eeac66ed17"
+  name = "google.golang.org/api"
+  packages = [
+    "compute/v1",
+    "gensupport",
+    "googleapi",
+    "googleapi/internal/uritemplates",
+    "iam/v1",
+    "oauth2/v2",
+  ]
+  pruneopts = "UT"
+  revision = "799fe93f827439cfd251917066a18691dc6a7fc1"
+
+[[projects]]
+  digest = "1:d2a8db567a76203e3b41c1f632d86485ffd57f8e650a0d1b19d240671c2fddd7"
+  name = "google.golang.org/appengine"
+  packages = [
+    ".",
+    "internal",
+    "internal/app_identity",
+    "internal/base",
+    "internal/datastore",
+    "internal/log",
+    "internal/modules",
+    "internal/remote_api",
+    "internal/urlfetch",
+    "urlfetch",
+  ]
+  pruneopts = "UT"
+  revision = "4a4468ece617fc8205e99368fa2200e9d1fad421"
+  version = "v1.3.0"
+
+[[projects]]
+  digest = "1:26a278a34e30cc8fbd09d5f7474488ac4cbad325c2b592b30e76e5d7d2fc1f10"
+  name = "gopkg.in/square/go-jose.v2"
+  packages = [
+    ".",
+    "cipher",
+    "json",
+  ]
+  pruneopts = "UT"
+  revision = "ef984e69dd356202fd4e4910d4d9c24468bdf0b8"
+  version = "v2.1.9"
+
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
@@ -225,8 +322,12 @@
     "github.com/aws/aws-sdk-go/aws/session",
     "github.com/aws/aws-sdk-go/service/sts",
     "github.com/cenkalti/backoff",
+    "github.com/hashicorp/go-cleanhttp",
+    "github.com/hashicorp/go-gcp-common/gcputil",
     "github.com/hashicorp/vault/api",
     "github.com/mitchellh/go-homedir",
+    "golang.org/x/oauth2",
+    "google.golang.org/api/iam/v1",
   ]
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -1,10 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"encoding/base64"
-	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -12,16 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/cenkalti/backoff"
 	"github.com/hashicorp/vault/api"
 	homedir "github.com/mitchellh/go-homedir"
@@ -31,10 +22,13 @@ var config struct {
 	vaultAddress      string
 	tokenPath         string
 	k8sTokenPath      string
-	k8sAuthMount      string
-	iamAuthMount      string
 	k8sAuth           bool
+	k8sAuthMount      string
 	iamAuth           bool
+	iamAuthMount      string
+	gcpIAMAuth        bool
+	gcpAuthMount      string
+	gcpServiceAccount string
 	vaultAuthRoleName string
 	renewalThreshold  int64
 	renewalInterval   int64
@@ -72,7 +66,12 @@ func init() {
 	flag.StringVar(&config.vaultAuthRoleName, "vault-auth-role", buildDefaultConfigItem("VAULT_AUTH_ROLE", ""), "the name of the role used for auth. used with either auth method (env: VAULT_AUTH_ROLE)")
 	flag.StringVar(&config.k8sAuthMount, "k8s-auth-mount", buildDefaultConfigItem("K8S_AUTH_MOUNT", "kubernetes"), "the vault mount where k8s auth takes place (env: K8S_AUTH_MOUNT)")
 	flag.StringVar(&config.iamAuthMount, "iam-auth-mount", buildDefaultConfigItem("IAM_AUTH_MOUNT", "aws"), "the vault mount where iam auth takes place (env: IAM_AUTH_MOUNT)")
-
+	flag.BoolVar(&config.gcpIAMAuth, "gcp-auth", func() bool {
+		b, err := strconv.ParseBool(buildDefaultConfigItem("GCP_AUTH", "false"))
+		return err == nil && b
+	}(), "select Google Cloud Platform IAM auth as the vault authentication mechanism (env: GCP_AUTH)")
+	flag.StringVar(&config.gcpAuthMount, "gcp-auth-mount", buildDefaultConfigItem("GCP_AUTH_MOUNT", "gcp"), "the vault mount where gcp auth takes place (env: GCP_AUTH_MOUNT)")
+	flag.StringVar(&config.gcpServiceAccount, "gcp-svc-acct", buildDefaultConfigItem("GCP_SVC_ACCT", ""), "the name of the service account authenticating (env: GCP_SVC_ACCT)")
 	flag.Int64Var(&config.renewalInterval, "renewal-interval", func() int64 {
 		b, err := strconv.ParseInt(buildDefaultConfigItem("RENEWAL_INTERVAL", "300"), 10, 64)
 		if err != nil {
@@ -115,11 +114,17 @@ func main() {
 	log.SetPrefix("DAYTONA - ")
 	flag.Parse()
 
-	if !config.k8sAuth && !config.iamAuth {
-		log.Fatalln("You must provide an auth method: -k8s-auth or -iam-auth")
+	if !config.k8sAuth && !config.iamAuth && !config.gcpIAMAuth {
+		log.Fatalln("You must provide an auth method: -k8s-auth or -iam-auth or -gcp-auth")
 	}
-	if config.k8sAuth && config.iamAuth {
-		log.Fatalln("You cannot choose more than one auth method: -k8s-auth or -iam-auth")
+	p := 0
+	for _, v := range []bool{config.k8sAuth, config.iamAuth, config.gcpIAMAuth} {
+		if v {
+			p++
+		}
+	}
+	if p > 1 {
+		log.Fatalln("You cannot choose more than one auth method")
 	}
 	if config.vaultAuthRoleName == "" {
 		log.Fatalln("you must supply a role name via VAULT_AUTH_ROLE or -vault-auth-role")
@@ -147,7 +152,9 @@ func main() {
 	}
 
 	log.Println(fmt.Sprintf("DAYTONA - %s", version))
-	client, err := api.NewClient(&api.Config{Address: config.vaultAddress})
+	vaultConfig := api.DefaultConfig()
+	vaultConfig.Address = config.vaultAddress
+	client, err := api.NewClient(vaultConfig)
 	if err != nil {
 		log.Fatalf("Could not configure vault client. error: %s", err)
 	}
@@ -193,7 +200,7 @@ func main() {
 	}
 
 	if !config.infinteAuth && !authenticated {
-		log.Fatalln("infinite authentication attempts are not enalbed and the maximum elapsed time has been reached for authentication attempts. exiting.")
+		log.Fatalln("infinite authentication attempts are not enabled and the maximum elapsed time has been reached for authentication attempts. exiting.")
 	}
 
 	secretFetcher(client)
@@ -229,96 +236,6 @@ func main() {
 	}
 }
 
-func kubernetesAuth(client *api.Client) (string, error) {
-	if config.k8sTokenPath == "" {
-		return "", fmt.Errorf("kubernetes auth token path is mssing")
-	}
-
-	data, err := ioutil.ReadFile(config.k8sTokenPath)
-	if err != nil {
-		return "", fmt.Errorf("could not read JWT from file %s", err.Error())
-	}
-	jwt := string(bytes.TrimSpace(data))
-	payload := map[string]interface{}{
-		"role": config.vaultAuthRoleName,
-		"jwt":  jwt,
-	}
-	path := fmt.Sprintf("auth/%s/login", config.k8sAuthMount)
-	log.Println("sending authentication request to", path)
-	secret, err := client.Logical().Write(path, payload)
-	if err != nil {
-		return "", err
-	}
-	return secret.Auth.ClientToken, nil
-}
-
-func iamAuth(client *api.Client) (string, error) {
-	loginData := make(map[string]interface{})
-	stsSession, err := session.NewSession(&aws.Config{
-		MaxRetries: aws.Int(5),
-	})
-	if err != nil {
-		return "", err
-	}
-	svc := sts.New(stsSession)
-	var params *sts.GetCallerIdentityInput
-	stsRequest, _ := svc.GetCallerIdentityRequest(params)
-	stsRequest.Sign()
-
-	headersJSON, err := json.Marshal(stsRequest.HTTPRequest.Header)
-	if err != nil {
-		return "", err
-	}
-	requestBody, err := ioutil.ReadAll(stsRequest.HTTPRequest.Body)
-	if err != nil {
-		return "", err
-	}
-	loginData["iam_http_request_method"] = stsRequest.HTTPRequest.Method
-	loginData["iam_request_url"] = base64.StdEncoding.EncodeToString([]byte(stsRequest.HTTPRequest.URL.String()))
-	loginData["iam_request_headers"] = base64.StdEncoding.EncodeToString(headersJSON)
-	loginData["iam_request_body"] = base64.StdEncoding.EncodeToString(requestBody)
-	loginData["role"] = config.vaultAuthRoleName
-
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", config.iamAuthMount), loginData)
-	if err != nil {
-		return "", fmt.Errorf("could not login %s", err.Error())
-	}
-	return secret.Auth.ClientToken, nil
-}
-
-func authenticate(client *api.Client) bool {
-	var vaultToken string
-	var err error
-
-	switch {
-	case config.k8sAuth:
-		vaultToken, err = kubernetesAuth(client)
-		if err != nil {
-			log.Println("error,", err.Error())
-			return false
-		}
-	case config.iamAuth:
-		vaultToken, err = iamAuth(client)
-		if err != nil {
-			log.Println("error,", err.Error())
-			return false
-		}
-	default:
-		panic("should never get here")
-	}
-	if vaultToken == "" {
-		log.Fatalln("something weird happened, should have had the token, but do not")
-	}
-
-	err = ioutil.WriteFile(config.tokenPath, []byte(vaultToken), 0600)
-	if err != nil {
-		log.Println("could not write token to file", config.tokenPath)
-		return false
-	}
-	client.SetToken(string(vaultToken))
-	return true
-}
-
 func renewService(client *api.Client, interval time.Duration) {
 	log.Println("starting the token renewer service on interval", interval)
 	ticker := time.Tick(interval)
@@ -344,149 +261,4 @@ func renewService(client *api.Client, interval time.Duration) {
 		}
 		<-ticker
 	}
-}
-
-func secretFetcher(client *api.Client) {
-	if config.secretPayloadPath == "" && !config.secretEnv {
-		log.Println("no secret output method was configured, will not attempt to retrieve secrets")
-		return
-	}
-	log.Println("starting secret fetch")
-
-	secrets := make(map[string]string)
-	envs := os.Environ()
-	for _, v := range envs {
-		pair := strings.Split(v, "=")
-		envKey := pair[0]
-		secretPath := os.Getenv(envKey)
-		if secretPath == "" {
-			continue
-		}
-		// Single secret
-		if strings.HasPrefix(envKey, "VAULT_SECRET_") {
-			secret, err := client.Logical().Read(secretPath)
-			if err != nil {
-				log.Fatalf("there was a problem fetching %s: %s\n", secretPath, err)
-			}
-			if secret == nil {
-				log.Fatalf("secret not found: %s\n", secretPath)
-			}
-			log.Println("Found secret: ", secretPath)
-
-			splitPath := strings.Split(secretPath, "/")
-			keyName := splitPath[len(splitPath)-1]
-
-			err = addSecrets(secrets, keyName, secret.Data)
-			if err != nil {
-				log.Fatalln(err)
-			}
-		}
-		// Path containing multiple secrets
-		if strings.HasPrefix(envKey, "VAULT_SECRETS_") {
-			list, err := client.Logical().List(secretPath)
-			if err != nil {
-				log.Fatalf("there was a problem listing %s: %s\n", secretPath, err)
-			}
-			if list == nil || len(list.Data) == 0 {
-				log.Fatalf("no secrets found under: %s\n", secretPath)
-			}
-			log.Println("starting iteration on", secretPath)
-			// list.Data is like: map[string]interface {}{"keys":[]interface {}{"DATADOG_API_KEY", "DATADOG_APPLICATION_KEY", "PG_PASS"}}
-			keys, ok := list.Data["keys"].([]interface{})
-			if !ok {
-				log.Fatalf("Unexpected list.Data format: %#v\n", list.Data)
-			}
-			for _, k := range keys {
-				key, ok := k.(string)
-				if !ok {
-					log.Fatalf("Non-string secret name: %#v\n", key)
-				}
-				constructedPath := path.Join(secretPath, key)
-				secret, err := client.Logical().Read(constructedPath)
-				if err != nil {
-					log.Fatalf("failed retrieving secret %s: %s\n", constructedPath, err)
-				}
-				if secret == nil {
-					log.Fatalf("vault listed a secret '%s', but got not-found trying to read it at '%s'; very strange\n", key, constructedPath)
-				}
-				err = addSecrets(secrets, key, secret.Data)
-				if err != nil {
-					log.Fatalln(err)
-				}
-			}
-		}
-	}
-
-	if config.secretPayloadPath != "" {
-		err := writeJSONSecrets(secrets, config.secretPayloadPath)
-		if err != nil {
-			log.Fatalln(err)
-		}
-	}
-	if config.secretEnv {
-		err := setEnvSecrets(secrets)
-		if err != nil {
-			log.Fatalln(err)
-		}
-	}
-}
-
-func writeJSONSecrets(secrets map[string]string, filepath string) error {
-	payloadJSON, err := json.Marshal(secrets)
-	if err != nil {
-		return fmt.Errorf("failed to convert secrets payload to json: %s", err)
-	}
-	err = ioutil.WriteFile(filepath, payloadJSON, 0600)
-	if err != nil {
-		return fmt.Errorf("could not write secrets to file '%s': %s", filepath, err)
-	}
-	log.Printf("wrote %d secrets to %s\n", len(secrets), filepath)
-	return nil
-}
-
-func setEnvSecrets(secrets map[string]string) error {
-	for k, v := range secrets {
-		err := os.Setenv(k, v)
-		if err != nil {
-			return fmt.Errorf("Error from os.Setenv: %s", err)
-		}
-		log.Println("Set env var", k)
-	}
-	return nil
-}
-
-func addSecret(secrets map[string]string, k string, v interface{}) error {
-	if secrets[k] != "" {
-		return errors.New("Duplicate secret name: " + k)
-	}
-	s, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("Secret '%s' has non-string value: %#v", k, v)
-	}
-	secrets[k] = s
-	return nil
-}
-
-func addSecrets(secrets map[string]string, keyName string, secretData map[string]interface{}) error {
-	// Return last error encountered during processing, if any
-	var lastErr error
-
-	// detect and fetch defaultKeyName
-	if secretData[defaultKeyName] != nil {
-		err := addSecret(secrets, keyName, secretData[defaultKeyName])
-		if err != nil {
-			lastErr = err
-		}
-		delete(secretData, defaultKeyName)
-	}
-
-	// iterate over remaining map entries
-	for k, v := range secretData {
-		expandedKeyName := fmt.Sprintf("%s_%s", keyName, k)
-		err := addSecret(secrets, expandedKeyName, v)
-		if err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
 }
