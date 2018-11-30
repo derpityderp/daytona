@@ -31,16 +31,18 @@ var config struct {
 	gcpServiceAccount string
 	vaultAuthRoleName string
 	renewalThreshold  int64
+	renewalIncrement  int64
 	renewalInterval   int64
 	secretPayloadPath string
 	secretEnv         bool
 	autoRenew         bool
 	entrypoint        bool
-	infinteAuth       bool
+	infiniteAuth      bool
+	maximumAuthRetry  int64
 }
 
 const defaultKeyName = "value"
-const version = "0.0.2"
+const version = "0.0.3"
 
 // buildDefaultConfigItem uses the following operation: ENV --> arg
 func buildDefaultConfigItem(envKey string, def string) (val string) {
@@ -80,12 +82,19 @@ func init() {
 		return b
 	}(), "how often to check the token's ttl and potentially renew it (env: RENEWAL_INTERVAL)")
 	flag.Int64Var(&config.renewalThreshold, "renewal-threshold", func() int64 {
-		b, err := strconv.ParseInt(buildDefaultConfigItem("RENEWAL_THRESHOLD", "43200"), 10, 64)
+		b, err := strconv.ParseInt(buildDefaultConfigItem("RENEWAL_THRESHOLD", "7200"), 10, 64)
+		if err != nil {
+			return 7200
+		}
+		return b
+	}(), "the threshold remaining in the vault token, in seconds, after which it should be renewed (env: RENEWAL_THRESHOLD)")
+	flag.Int64Var(&config.renewalIncrement, "renewal-increment", func() int64 {
+		b, err := strconv.ParseInt(buildDefaultConfigItem("RENEWAL_INCREMENT", "43200"), 10, 64)
 		if err != nil {
 			return 43200
 		}
 		return b
-	}(), "the threshold remaining in the vault token, in seconds, after which it should be renewed (env: RENEWAL_THRESHOLD)")
+	}(), "the value, in seconds, to which the token's ttl should be renewed (env: RENEWAL_INCREMENT)")
 	flag.StringVar(&config.secretPayloadPath, "secret-path", buildDefaultConfigItem("SECRET_PATH", ""), "the full file path to store the JSON blob of the fetched secrets (env: SECRET_PATH)")
 	flag.BoolVar(&config.autoRenew, "auto-renew", func() bool {
 		b, err := strconv.ParseBool(buildDefaultConfigItem("AUTO_RENEW", "false"))
@@ -99,10 +108,17 @@ func init() {
 		b, err := strconv.ParseBool(buildDefaultConfigItem("SECRET_ENV", "false"))
 		return err == nil && b
 	}(), "write secrets to environment variables (env: SECRET_ENV)")
-	flag.BoolVar(&config.infinteAuth, "infinite-auth", func() bool {
+	flag.BoolVar(&config.infiniteAuth, "infinite-auth", func() bool {
 		b, err := strconv.ParseBool(buildDefaultConfigItem("INFINITE_AUTH", "false"))
 		return err == nil && b
 	}(), "infinitely attempt to authenticate (env: INFINITE_AUTH)")
+	flag.Int64Var(&config.maximumAuthRetry, "max-auth-duration", func() int64 {
+		b, err := strconv.ParseInt(buildDefaultConfigItem("MAX_AUTH_DURATION", "300"), 10, 64)
+		if err != nil {
+			return 300
+		}
+		return b
+	}(), "the value, in seconds, for which DAYTONA should attempt to renew a token before exiting (env: MAX_AUTH_DURATION)")
 }
 
 func main() {
@@ -164,10 +180,12 @@ func main() {
 
 	bo := backoff.NewExponentialBackOff()
 	bo.MaxInterval = time.Second * 15
-	if config.infinteAuth {
+	if config.infiniteAuth {
+		log.Println("infinite authentication enabled")
 		bo.MaxElapsedTime = 0
 	} else {
-		bo.MaxElapsedTime = time.Minute * 5
+		log.Println("authentication will be attempted for", config.maximumAuthRetry, "seconds")
+		bo.MaxElapsedTime = time.Second * time.Duration(config.maximumAuthRetry)
 	}
 	authTicker := backoff.NewTicker(bo)
 	for _ = range authTicker.C {
@@ -199,7 +217,7 @@ func main() {
 		}
 	}
 
-	if !config.infinteAuth && !authenticated {
+	if !config.infiniteAuth && !authenticated {
 		log.Fatalln("infinite authentication attempts are not enabled and the maximum elapsed time has been reached for authentication attempts. exiting.")
 	}
 
@@ -246,8 +264,8 @@ func renewService(client *api.Client, interval time.Duration) {
 		}
 		ttl, err := result.TokenTTL()
 		if ttl.Seconds() < float64(config.renewalThreshold) {
-			fmt.Println("renewing: token ttl of", ttl.Seconds(), "is below threshold of ", config.renewalThreshold)
-			secret, err := client.Auth().Token().RenewSelf(46800)
+			fmt.Println("token ttl of", ttl.Seconds(), "is below threshold of", config.renewalThreshold, ", renewing to", config.renewalIncrement)
+			secret, err := client.Auth().Token().RenewSelf(int(config.renewalIncrement))
 			if err != nil {
 				log.Println("failed to renew the existing token:", err)
 			}
