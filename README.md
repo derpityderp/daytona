@@ -96,6 +96,8 @@ If provided a direct path `secret/infrastructure/applicationZ/database`, the app
 
 ## Implementation Examples
 
+You have configured a vault k8s auth role named `awesome-app-vault-role-name` that contains the following configuration:
+
 ```
 {
   "bound_service_account_names": [
@@ -105,13 +107,15 @@ If provided a direct path `secret/infrastructure/applicationZ/database`, the app
     "elite-squad"
   ],
   "policies": [
-    "geetl-dev"
+    "too-permissive"
   ],
   "ttl": 72000
 }
 ```
 
 **Pod Definition Example**:
+
+Be sure to populate the `serviceAccountName` and `VAULT_AUTH_ROLE` with the corresponding values from your vault k8s auth role as described above.
 
 ```yaml
 ---
@@ -138,7 +142,7 @@ spec:
     - name: TOKEN_PATH
       value: /home/vault/.vault-token
     - name: VAULT_AUTH_ROLE
-      value: vault-role-name
+      value: awesome-app-vault-role-name
     - name: SECRET_PATH
       value: /home/vault/secrets
     - name: VAULT_SECRETS_APP
