@@ -92,10 +92,24 @@ moredatahere/
 
 If provided a direct path `secret/infrastructure/applicationZ/database`, the application will process secret data as outlined in **Data and Secret Key Layout** above.
 
-
 ----
 
 ## Implementation Examples
+
+```
+{
+  "bound_service_account_names": [
+    "awe-some-app"
+  ],
+  "bound_service_account_namespaces": [
+    "elite-squad"
+  ],
+  "policies": [
+    "geetl-dev"
+  ],
+  "ttl": 72000
+}
+```
 
 **Pod Definition Example**:
 
@@ -112,6 +126,7 @@ spec:
       medium: Memory
 
   initContainers:
+  serviceAccountName: awe-some-app
   - name: daytona
     image: daytona:latest
     volumeMounts:
