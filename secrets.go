@@ -14,13 +14,15 @@ import (
 )
 
 func secretFetcher(client *api.Client) {
-	if config.secretPayloadPath == "" && !config.secretEnv {
+	locations := prefixSecretLocationDefined()
+	if config.secretPayloadPath == "" && !config.secretEnv && locations == nil {
 		log.Println("no secret output method was configured, will not attempt to retrieve secrets")
 		return
 	}
-	log.Println("starting secret fetch")
 
+	log.Println("starting secret fetch")
 	secrets := make(map[string]string)
+
 	envs := os.Environ()
 	for _, v := range envs {
 		pair := strings.Split(v, "=")
@@ -29,6 +31,7 @@ func secretFetcher(client *api.Client) {
 		if secretPath == "" {
 			continue
 		}
+
 		// Single secret
 		if strings.HasPrefix(envKey, "VAULT_SECRET_") {
 			secret, err := client.Logical().Read(secretPath)
@@ -84,18 +87,53 @@ func secretFetcher(client *api.Client) {
 		}
 	}
 
-	if config.secretPayloadPath != "" {
+	if len(locations) == 0 && config.secretPayloadPath != "" {
 		err := writeJSONSecrets(secrets, config.secretPayloadPath)
 		if err != nil {
 			log.Fatalln(err)
 		}
+	} else {
+		err := writeSecretsToDestination(secrets, config.secretPayloadPath, locations)
+		if err != nil {
+			log.Fatalln(err)
+		}
 	}
+
 	if config.secretEnv {
 		err := setEnvSecrets(secrets)
 		if err != nil {
 			log.Fatalln(err)
 		}
 	}
+}
+
+func writeSecretsToDestination(secrets map[string]string, filepath string, locations map[string]string) error {
+	for secret, secretValue := range secrets {
+		if secretDestination, ok := locations[secret]; ok {
+			err := ioutil.WriteFile(secretDestination, []byte(secretValue), 0600)
+			if err != nil {
+				return fmt.Errorf("could not write secrets to file '%s': %s", secretDestination, err)
+			}
+			log.Printf("wrote secret to %s\n", secretDestination)
+		}
+	}
+
+	// If there is no filepath configured or all hte secrets have been
+	// consumed by expandedSecrets, return.
+	if filepath == "" || len(secrets) == 0 {
+		return nil
+	}
+
+	payloadJSON, err := json.Marshal(secrets)
+	if err != nil {
+		return fmt.Errorf("failed to convert secrets payload to json: %s", err)
+	}
+	err = ioutil.WriteFile(filepath, payloadJSON, 0600)
+	if err != nil {
+		return fmt.Errorf("could not write secrets to file '%s': %s", filepath, err)
+	}
+	log.Printf("wrote %d secrets to %s\n", len(secrets), filepath)
+	return nil
 }
 
 func writeJSONSecrets(secrets map[string]string, filepath string) error {
@@ -156,4 +194,23 @@ func addSecrets(secrets map[string]string, keyName string, secretData map[string
 		}
 	}
 	return lastErr
+}
+
+// prefixSecretLocationDefined checks whether any of the configured
+// secrets for fetching are using an explicit destination.
+func prefixSecretLocationDefined() map[string]string {
+	var locations map[string]string
+	envs := os.Environ()
+	for _, v := range envs {
+		pair := strings.Split(v, "=")
+		envKey := pair[0]
+		if strings.HasPrefix(envKey, secretLocationPrefix) {
+			if locations == nil {
+				locations = map[string]string{}
+			}
+			secret := strings.TrimPrefix(envKey, secretLocationPrefix)
+			locations[secret] = os.Getenv(envKey)
+		}
+	}
+	return locations
 }

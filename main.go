@@ -43,6 +43,7 @@ var config struct {
 
 const defaultKeyName = "value"
 const version = "0.0.3"
+const secretLocationPrefix = "DAYTONA_SECRET_DESTINATION_"
 
 // buildDefaultConfigItem uses the following operation: ENV --> arg
 func buildDefaultConfigItem(envKey string, def string) (val string) {
