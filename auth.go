@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sts"
-	"github.com/hashicorp/go-cleanhttp"
+	cleanhttp "github.com/hashicorp/go-cleanhttp"
 	"github.com/hashicorp/go-gcp-common/gcputil"
 	"github.com/hashicorp/vault/api"
 	"golang.org/x/oauth2"
@@ -53,7 +53,7 @@ func authenticate(client *api.Client) bool {
 
 	err = ioutil.WriteFile(config.tokenPath, []byte(vaultToken), 0600)
 	if err != nil {
-		log.Println("could not write token to file", config.tokenPath)
+		log.Printf("could not write token to %s: %v\n", config.tokenPath, err)
 		return false
 	}
 	client.SetToken(string(vaultToken))
