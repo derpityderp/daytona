@@ -134,13 +134,17 @@ spec:
   initContainers:
   serviceAccountName: awe-some-app
   - name: daytona
-    image: daytona:latest
+    image: gcr.io/cruise-gcr-dev/daytona@sha256:6df2fb8fa114f00d25cac199ecdf5b0e44659af8de21451abf8d8e7cdeceaa3e
     volumeMounts:
     - name: vault-data
       mountPath: /home/vault
     env:
     - name: K8S_AUTH
-      value: true
+      value: "true"
+    - name : K8S_AUTH_MOUNT
+      value: "kubernetes-gcp-paas-dev-us-west1"
+    - name: SECRET_ENV
+      value: "true"
     - name: TOKEN_PATH
       value: /home/vault/.vault-token
     - name: VAULT_AUTH_ROLE
