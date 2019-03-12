@@ -66,8 +66,8 @@ func init() {
 		return err == nil && b
 	}(), "select AWS IAM vault auth as the vault authentication mechanism (env: IAM_AUTH)")
 	flag.StringVar(&config.k8sTokenPath, "k8s-token-path", buildDefaultConfigItem("K8S_TOKEN_PATH", "/var/run/secrets/kubernetes.io/serviceaccount/token"), "kubernetes service account jtw token path (env: K8S_TOKEN_PATH)")
-	flag.StringVar(&config.vaultAuthRoleName, "vault-auth-role", buildDefaultConfigItem("VAULT_AUTH_ROLE", ""), "the name of the role used for auth. used with either auth method (env: VAULT_AUTH_ROLE)")
-	flag.StringVar(&config.k8sAuthMount, "k8s-auth-mount", buildDefaultConfigItem("K8S_AUTH_MOUNT", "kubernetes"), "the vault mount where k8s auth takes place (env: K8S_AUTH_MOUNT)")
+	flag.StringVar(&config.vaultAuthRoleName, "vault-auth-role", buildDefaultConfigItem("VAULT_AUTH_ROLE", ""), "the name of the role used for auth. used with either auth method (env: VAULT_AUTH_ROLE, note: will infer to k8s sa account name if left blank)")
+	flag.StringVar(&config.k8sAuthMount, "k8s-auth-mount", buildDefaultConfigItem("K8S_AUTH_MOUNT", "kubernetes"), "the vault mount where k8s auth takes place (env: K8S_AUTH_MOUNT, note: will infer via k8s metadata api if left unset)")
 	flag.StringVar(&config.iamAuthMount, "iam-auth-mount", buildDefaultConfigItem("IAM_AUTH_MOUNT", "aws"), "the vault mount where iam auth takes place (env: IAM_AUTH_MOUNT)")
 	flag.BoolVar(&config.gcpIAMAuth, "gcp-auth", func() bool {
 		b, err := strconv.ParseBool(buildDefaultConfigItem("GCP_AUTH", "false"))
@@ -143,6 +143,11 @@ func main() {
 	if p > 1 {
 		log.Fatalln("You cannot choose more than one auth method")
 	}
+
+	if config.k8sAuth {
+		InferK8SConfig()
+	}
+
 	if config.vaultAuthRoleName == "" {
 		log.Fatalln("you must supply a role name via VAULT_AUTH_ROLE or -vault-auth-role")
 	}

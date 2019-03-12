@@ -278,7 +278,7 @@ Usage of daytona:
   -k8s-auth
         select kubernetes vault auth as the vault authentication mechanism (env: K8S_AUTH)
   -k8s-auth-mount string
-        the vault mount where k8s auth takes place (env: K8S_AUTH_MOUNT) (default "kubernetes")
+        the vault mount where k8s auth takes place (env: K8S_AUTH_MOUNT, note: will infer via k8s metadata api if left unset) (default "kubernetes")
   -k8s-token-path string
         kubernetes service account jtw token path (env: K8S_TOKEN_PATH) (default "/var/run/secrets/kubernetes.io/serviceaccount/token")
   -renewal-interval int
@@ -292,5 +292,5 @@ Usage of daytona:
   -token-path string
         a full file path where a token will be read from/written to (env: TOKEN_PATH) (default "~/.vault-token")
   -vault-auth-role string
-        the name of the role used for auth. used with either auth method (env: VAULT_AUTH_ROLE)
+        the name of the role used for auth. used with either auth method (env: VAULT_AUTH_ROLE, note: will infer to k8s sa account name if left blank)
 ```
