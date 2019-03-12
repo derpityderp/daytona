@@ -1,5 +1,9 @@
 # cloud.google.com/go v0.31.0
 cloud.google.com/go/compute/metadata
+# github.com/SermoDigital/jose v0.9.1
+github.com/SermoDigital/jose
+github.com/SermoDigital/jose/crypto
+github.com/SermoDigital/jose/jwt
 # github.com/aws/aws-sdk-go v1.14.14
 github.com/aws/aws-sdk-go/aws
 github.com/aws/aws-sdk-go/aws/session
@@ -27,6 +31,8 @@ github.com/aws/aws-sdk-go/private/protocol/rest
 github.com/aws/aws-sdk-go/private/protocol/query/queryutil
 github.com/aws/aws-sdk-go/private/protocol/xml/xmlutil
 github.com/aws/aws-sdk-go/private/protocol
+# github.com/briankassouf/jose v0.9.1
+github.com/briankassouf/jose/jws
 # github.com/cenkalti/backoff v2.0.0+incompatible
 github.com/cenkalti/backoff
 # github.com/go-ini/ini v1.37.0
@@ -80,8 +86,8 @@ golang.org/x/crypto/pbkdf2
 golang.org/x/crypto/ed25519/internal/edwards25519
 # golang.org/x/net v0.0.0-20181201002055-351d144fa1fc
 golang.org/x/net/context
-golang.org/x/net/http2
 golang.org/x/net/context/ctxhttp
+golang.org/x/net/http2
 golang.org/x/net/http/httpguts
 golang.org/x/net/http2/hpack
 golang.org/x/net/idna

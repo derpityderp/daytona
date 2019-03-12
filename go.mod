@@ -1,7 +1,7 @@
 module github.robot.car/cruise/daytona
 
 require (
-	cloud.google.com/go v0.31.0 // indirect
+	cloud.google.com/go v0.31.0
 	github.com/Azure/go-ansiterm v0.0.0-20170929234023-d6e3b3328b78 // indirect
 	github.com/Microsoft/go-winio v0.4.11 // indirect
 	github.com/NYTimes/gziphandler v1.0.1 // indirect
@@ -14,6 +14,7 @@ require (
 	github.com/aws/aws-sdk-go v1.14.14
 	github.com/bitly/go-hostpool v0.0.0-20171023180738-a3a6125de932 // indirect
 	github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 // indirect
+	github.com/briankassouf/jose v0.9.1
 	github.com/cenkalti/backoff v2.0.0+incompatible
 	github.com/containerd/continuity v0.0.0-20181203112020-004b46473808 // indirect
 	github.com/denisenkom/go-mssqldb v0.0.0-20190204142019-df6d76eb9289 // indirect
