@@ -34,19 +34,7 @@ func secretFetcher(client *api.Client) {
 
 		// Single secret
 		if strings.HasPrefix(envKey, "VAULT_SECRET_") {
-			secret, err := client.Logical().Read(secretPath)
-			if err != nil {
-				log.Fatalf("there was a problem fetching %s: %s\n", secretPath, err)
-			}
-			if secret == nil {
-				log.Fatalf("secret not found: %s\n", secretPath)
-			}
-			log.Println("Found secret: ", secretPath)
-
-			splitPath := strings.Split(secretPath, "/")
-			keyName := splitPath[len(splitPath)-1]
-
-			err = addSecrets(secrets, keyName, secret.Data)
+			err := addSecrets(client, secrets, secretPath)
 			if err != nil {
 				log.Fatalln(err)
 			}
@@ -72,14 +60,7 @@ func secretFetcher(client *api.Client) {
 					log.Fatalf("Non-string secret name: %#v\n", key)
 				}
 				constructedPath := path.Join(secretPath, key)
-				secret, err := client.Logical().Read(constructedPath)
-				if err != nil {
-					log.Fatalf("failed retrieving secret %s: %s\n", constructedPath, err)
-				}
-				if secret == nil {
-					log.Fatalf("vault listed a secret '%s', but got not-found trying to read it at '%s'; very strange\n", key, constructedPath)
-				}
-				err = addSecrets(secrets, key, secret.Data)
+				err = addSecrets(client, secrets, constructedPath)
 				if err != nil {
 					log.Fatalln(err)
 				}
@@ -174,7 +155,18 @@ func addSecret(secrets map[string]string, k string, v interface{}) error {
 	return nil
 }
 
-func addSecrets(secrets map[string]string, keyName string, secretData map[string]interface{}) error {
+func addSecrets(client *api.Client, secrets map[string]string, keyPath string) error {
+	_, keyName := path.Split(keyPath)
+
+	secret, err := client.Logical().Read(keyPath)
+	if err != nil {
+		log.Fatalf("failed retrieving secret %s: %s\n", keyPath, err)
+	}
+	if secret == nil {
+		log.Fatalf("vault listed a secret '%s', but got not-found trying to read it at '%s'; very strange\n", keyName, keyPath)
+	}
+	secretData := secret.Data
+
 	// Return last error encountered during processing, if any
 	var lastErr error
 
