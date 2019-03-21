@@ -124,13 +124,8 @@ func gcpAuth(client *api.Client) (string, error) {
 	if config.gcpServiceAccount == "" {
 		return "", errors.New("-gcp-svc-acct is missing")
 	}
-	m := map[string]string{
-		"role":            config.vaultAuthRoleName,
-		"mount":           config.gcpAuthMount,
-		"service_account": config.gcpServiceAccount,
-	}
 
-	loginToken, err := getGCPSignedJwt(config.vaultAuthRoleName, m)
+	loginToken, err := getGCPSignedJwt(config.vaultAuthRoleName, config.gcpServiceAccount, "")
 	if err != nil {
 		return "", err
 	}
@@ -153,30 +148,28 @@ func gcpAuth(client *api.Client) (string, error) {
 	return secret.Auth.ClientToken, nil
 }
 
-func getGCPSignedJwt(role string, m map[string]string) (string, error) {
+func getGCPSignedJwt(role, serviceAccount, project string) (string, error) {
 	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, cleanhttp.DefaultClient())
 
-	credentials, tokenSource, err := gcputil.FindCredentials(m["credentials"], ctx, iam.CloudPlatformScope)
+	credentials, tokenSource, err := gcputil.FindCredentials("", ctx, iam.CloudPlatformScope)
 	if err != nil {
 		return "", fmt.Errorf("could not obtain credentials: %v", err)
 	}
 
 	httpClient := oauth2.NewClient(ctx, tokenSource)
 
-	serviceAccount, ok := m["service_account"]
-	if !ok && credentials != nil {
+	if serviceAccount == "" && credentials != nil {
 		serviceAccount = credentials.ClientEmail
 	}
+
 	if serviceAccount == "" {
 		return "", errors.New("could not obtain service account from credentials (are you using Application Default Credentials?). You must provide a service account to authenticate as")
 	}
 
-	project, ok := m["project"]
-	if !ok {
+	if project == "" {
+		project = "-"
 		if credentials != nil {
 			project = credentials.ProjectId
-		} else {
-			project = "-"
 		}
 	}
 
