@@ -189,11 +189,7 @@ func main() {
 		bo.MaxElapsedTime = time.Second * time.Duration(config.maximumAuthRetry)
 	}
 	authTicker := backoff.NewTicker(bo)
-	for _ = range authTicker.C {
-		if authenticated {
-			log.Println("found a valid vault token, continuing")
-			break
-		}
+	for range authTicker.C {
 		log.Println("checking for an existing, valid vault token")
 		if client.Token() == "" {
 			log.Println("no token found in VAULT_TOKEN, checking path", config.tokenPath)
@@ -213,9 +209,11 @@ func main() {
 			log.Println("invalid token", err)
 			authenticate(client)
 			continue
-		} else {
-			authenticated = true
 		}
+
+		log.Println("found a valid vault token, continuing")
+		authenticated = true
+		break
 	}
 
 	if !config.infiniteAuth && !authenticated {
