@@ -172,48 +172,8 @@ func main() {
 		log.Fatalf("Could not configure vault client. error: %s\n", err)
 	}
 
-	var authenticated bool
-	var vaultToken string
-
-	bo := backoff.NewExponentialBackOff()
-	bo.MaxInterval = time.Second * 15
-	if config.infiniteAuth {
-		log.Println("Infinite authentication enabled")
-		bo.MaxElapsedTime = 0
-	} else {
-		log.Printf("Authentication will be attempted for %d seconds\n", config.maximumAuthRetry)
-		bo.MaxElapsedTime = time.Second * time.Duration(config.maximumAuthRetry)
-	}
-	authTicker := backoff.NewTicker(bo)
-	for range authTicker.C {
-		log.Println("Checking for an existing, valid vault token")
-		if client.Token() == "" {
-			log.Println("No token found in VAULT_TOKEN, checking path", config.tokenPath)
-			fileToken, err := ioutil.ReadFile(config.tokenPath)
-			if err != nil {
-				log.Printf("Can't read an existing token at %q, starting authentication.\n", config.tokenPath)
-				authenticate(client)
-				continue
-			}
-			log.Println("Found an existing token at", config.tokenPath)
-			vaultToken = string(fileToken)
-			client.SetToken(string(vaultToken))
-		}
-
-		_, err := client.Auth().Token().LookupSelf()
-		if err != nil {
-			log.Println("Invalid token: ", err)
-			authenticate(client)
-			continue
-		}
-
-		log.Println("found a valid vault token, continuing")
-		authenticated = true
-		break
-	}
-
-	if !config.infiniteAuth && !authenticated {
-		log.Fatalln("Infinite authentication attempts are not enabled and the maximum elapsed time has been reached for authentication attempts. exiting.")
+	if !ensureAuthenticated(client) {
+		log.Fatalln("The maximum elapsed time has been reached for authentication attempts. exiting.")
 	}
 
 	secretFetcher(client)
@@ -247,6 +207,76 @@ func main() {
 			log.Fatalf("Error from exec: %s\n", err)
 		}
 	}
+}
+
+// ensureAuthentication verifies we have a valid token, or attempts to fetch a new one.
+// Returns false if it is unable to become authenticated
+func ensureAuthenticated(client *api.Client) bool {
+	// Vault Go API will read a token from VAULT_TOKEN if it exists.
+	// If it didn't find one, attempt to read token from disk.
+	log.Println("Checking for an existing, valid vault token")
+	if checkToken(client) {
+		return true
+	}
+
+	log.Println("No token found in VAULT_TOKEN env, checking path")
+	if checkFileToken(client, config.tokenPath) {
+		return true
+	}
+
+	log.Printf("No token found in %q, trying to re-authenticate\n", config.tokenPath)
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxInterval = time.Second * 15
+	if config.infiniteAuth {
+		log.Println("Infinite authentication enabled.")
+		bo.MaxElapsedTime = 0
+	} else {
+		log.Printf("Authentication will be attempted for %d seconds.\n", config.maximumAuthRetry)
+		bo.MaxElapsedTime = time.Second * time.Duration(config.maximumAuthRetry)
+	}
+
+	authTicker := backoff.NewTicker(bo)
+	for range authTicker.C {
+		log.Println("Attempting to authenticate")
+		if authenticate(client) {
+			log.Println("Authenticated")
+			return true
+		}
+	}
+
+	return false
+}
+
+// checkToken ensures the currently set token token is valid, or unsets it.
+// Returns true if the token is valid
+func checkToken(client *api.Client) bool {
+	if client.Token() == "" {
+		return false
+	}
+
+	// Check the validity of the token.  If from disk, it could be expired.
+	_, err := client.Auth().Token().LookupSelf()
+	if err != nil {
+		log.Println("Invalid token: ", err)
+		client.ClearToken()
+		return false
+	}
+
+	return true
+}
+
+// checkFileToken attempts to read a token from the specified tokenPath, and ensures it is set and valid.
+// Returns false if it is unable to read the token, or the token is invalid
+func checkFileToken(client *api.Client, tokenPath string) bool {
+	fileToken, err := ioutil.ReadFile(tokenPath)
+	if err != nil {
+		log.Printf("Can't read an existing token at %q.\n", tokenPath)
+		return false
+	}
+	log.Println("Found an existing token at", tokenPath)
+	client.SetToken(string(fileToken))
+
+	return checkToken(client)
 }
 
 func renewService(client *api.Client, interval time.Duration) {
