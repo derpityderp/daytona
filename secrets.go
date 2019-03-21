@@ -15,7 +15,7 @@ import (
 
 func secretFetcher(client *api.Client) {
 	locations := prefixSecretLocationDefined()
-	if config.secretPayloadPath == "" && !config.secretEnv && locations == nil {
+	if config.secretPayloadPath == "" && !config.secretEnv && len(locations) == 0 {
 		log.Println("no secret output method was configured, will not attempt to retrieve secrets")
 		return
 	}
@@ -109,16 +109,18 @@ func secretFetcher(client *api.Client) {
 
 func writeSecretsToDestination(secrets map[string]string, filepath string, locations map[string]string) error {
 	for secret, secretValue := range secrets {
-		if secretDestination, ok := locations[secret]; ok {
-			err := ioutil.WriteFile(secretDestination, []byte(secretValue), 0600)
-			if err != nil {
-				return fmt.Errorf("could not write secrets to file '%s': %s", secretDestination, err)
-			}
-			log.Printf("wrote secret to %s\n", secretDestination)
+		secretDestination, ok := locations[secret]
+		if !ok {
+			continue
 		}
+		err := ioutil.WriteFile(secretDestination, []byte(secretValue), 0600)
+		if err != nil {
+			return fmt.Errorf("could not write secrets to file '%s': %s", secretDestination, err)
+		}
+		log.Printf("wrote secret to %s\n", secretDestination)
 	}
 
-	// If there is no filepath configured or all hte secrets have been
+	// If there is no filepath configured or all the secrets have been
 	// consumed by expandedSecrets, return.
 	if filepath == "" || len(secrets) == 0 {
 		return nil
@@ -199,15 +201,12 @@ func addSecrets(secrets map[string]string, keyName string, secretData map[string
 // prefixSecretLocationDefined checks whether any of the configured
 // secrets for fetching are using an explicit destination.
 func prefixSecretLocationDefined() map[string]string {
-	var locations map[string]string
+	locations := make(map[string]string)
 	envs := os.Environ()
 	for _, v := range envs {
 		pair := strings.Split(v, "=")
 		envKey := pair[0]
 		if strings.HasPrefix(envKey, secretLocationPrefix) {
-			if locations == nil {
-				locations = map[string]string{}
-			}
 			secret := strings.TrimPrefix(envKey, secretLocationPrefix)
 			locations[secret] = os.Getenv(envKey)
 		}
