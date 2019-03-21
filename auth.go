@@ -71,17 +71,12 @@ func kubernetesAuth(client *api.Client) (string, error) {
 		return "", fmt.Errorf("could not read JWT from file %s", err.Error())
 	}
 	jwt := string(bytes.TrimSpace(data))
-	payload := map[string]interface{}{
+	loginData := map[string]interface{}{
 		"role": config.vaultAuthRoleName,
 		"jwt":  jwt,
 	}
-	path := fmt.Sprintf("auth/%s/login", config.k8sAuthMount)
-	log.Println("sending authentication request to", path)
-	secret, err := client.Logical().Write(path, payload)
-	if err != nil {
-		return "", err
-	}
-	return secret.Auth.ClientToken, nil
+	mountPath := fmt.Sprintf("auth/%s/login", config.k8sAuthMount)
+	return fetchVaultToken(client, mountPath, loginData)
 }
 
 func iamAuth(client *api.Client) (string, error) {
@@ -112,11 +107,8 @@ func iamAuth(client *api.Client) (string, error) {
 	loginData["iam_request_body"] = base64.StdEncoding.EncodeToString(requestBody)
 	loginData["role"] = config.vaultAuthRoleName
 
-	secret, err := client.Logical().Write(fmt.Sprintf("auth/%s/login", config.iamAuthMount), loginData)
-	if err != nil {
-		return "", fmt.Errorf("could not login %s", err.Error())
-	}
-	return secret.Auth.ClientToken, nil
+	mountPath := fmt.Sprintf("auth/%s/login", config.iamAuthMount)
+	return fetchVaultToken(client, mountPath, loginData)
 }
 
 func gcpAuth(client *api.Client) (string, error) {
@@ -130,22 +122,12 @@ func gcpAuth(client *api.Client) (string, error) {
 		return "", err
 	}
 
-	path := fmt.Sprintf("auth/%s/login", config.gcpAuthMount)
-	secret, err := client.Logical().Write(
-		path,
-		map[string]interface{}{
-			"role": config.vaultAuthRoleName,
-			"jwt":  loginToken,
-		})
-
-	if err != nil {
-		return "", err
+	loginData := map[string]interface{}{
+		"role": config.vaultAuthRoleName,
+		"jwt":  loginToken,
 	}
-	if secret == nil {
-		return "nil", fmt.Errorf("empty response from credential provider")
-	}
-
-	return secret.Auth.ClientToken, nil
+	mountPath := fmt.Sprintf("auth/%s/login", config.gcpAuthMount)
+	return fetchVaultToken(client, mountPath, loginData)
 }
 
 func getGCPSignedJwt(role, serviceAccount, project string) (string, error) {
@@ -201,4 +183,16 @@ func getGCPSignedJwt(role, serviceAccount, project string) (string, error) {
 	}
 
 	return resp.SignedJwt, nil
+}
+
+func fetchVaultToken(client *api.Client, mountPath string, loginData map[string]interface{}) (string, error) {
+	secret, err := client.Logical().Write(mountPath, loginData)
+	if err != nil {
+		return "", err
+	}
+	if secret == nil {
+		return "", errors.New("empty response from credential provider")
+	}
+
+	return secret.Auth.ClientToken, nil
 }
