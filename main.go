@@ -144,36 +144,32 @@ func main() {
 	}
 
 	if config.vaultAuthRoleName == "" {
-		log.Fatalln("you must supply a role name via VAULT_AUTH_ROLE or -vault-auth-role")
+		log.Fatalln("You must supply a role name via VAULT_AUTH_ROLE or -vault-auth-role")
 	}
 
 	fullTokenPath, err := homedir.Expand(config.tokenPath)
 	if err != nil {
-		log.Println("could not expand", config.tokenPath, "using it as-is")
+		log.Println("Could not expand", config.tokenPath, "using it as-is")
 	} else {
 		config.tokenPath = fullTokenPath
 	}
-	if f, err := os.Stat(config.tokenPath); err == nil {
-		if f.IsDir() {
-			log.Println("the token path you provided is a directory, automatically appending .vault-token filename")
-			config.tokenPath = filepath.Join(config.tokenPath, ".vault-token")
-		}
+	if f, err := os.Stat(config.tokenPath); err == nil && f.IsDir() {
+		log.Println("The provided token path is a directory, automatically appending .vault-token filename")
+		config.tokenPath = filepath.Join(config.tokenPath, ".vault-token")
 	}
 
 	if config.secretPayloadPath != "" {
-		if f, err := os.Stat(config.secretPayloadPath); err == nil {
-			if f.IsDir() {
-				log.Fatalln("the secret path you provided is a directory, please supply a full file path")
-			}
+		if f, err := os.Stat(config.secretPayloadPath); err == nil && f.IsDir() {
+			log.Fatalln("The secret path you provided is a directory, please supply a full file path")
 		}
 	}
 
-	log.Println(fmt.Sprintf("DAYTONA - %s", version))
+	log.Printf("Starting DAYTONA v%s\n", version)
 	vaultConfig := api.DefaultConfig()
 	vaultConfig.Address = config.vaultAddress
 	client, err := api.NewClient(vaultConfig)
 	if err != nil {
-		log.Fatalf("Could not configure vault client. error: %s", err)
+		log.Fatalf("Could not configure vault client. error: %s\n", err)
 	}
 
 	var authenticated bool
@@ -182,31 +178,31 @@ func main() {
 	bo := backoff.NewExponentialBackOff()
 	bo.MaxInterval = time.Second * 15
 	if config.infiniteAuth {
-		log.Println("infinite authentication enabled")
+		log.Println("Infinite authentication enabled")
 		bo.MaxElapsedTime = 0
 	} else {
-		log.Println("authentication will be attempted for", config.maximumAuthRetry, "seconds")
+		log.Printf("Authentication will be attempted for %d seconds\n", config.maximumAuthRetry)
 		bo.MaxElapsedTime = time.Second * time.Duration(config.maximumAuthRetry)
 	}
 	authTicker := backoff.NewTicker(bo)
 	for range authTicker.C {
-		log.Println("checking for an existing, valid vault token")
+		log.Println("Checking for an existing, valid vault token")
 		if client.Token() == "" {
-			log.Println("no token found in VAULT_TOKEN, checking path", config.tokenPath)
+			log.Println("No token found in VAULT_TOKEN, checking path", config.tokenPath)
 			fileToken, err := ioutil.ReadFile(config.tokenPath)
 			if err != nil {
-				log.Println("can't read an existing token at", config.tokenPath, "starting authentication")
+				log.Printf("Can't read an existing token at %q, starting authentication.\n", config.tokenPath)
 				authenticate(client)
 				continue
 			}
-			log.Println("found an existing token at", config.tokenPath)
+			log.Println("Found an existing token at", config.tokenPath)
 			vaultToken = string(fileToken)
 			client.SetToken(string(vaultToken))
 		}
 
 		_, err := client.Auth().Token().LookupSelf()
 		if err != nil {
-			log.Println("invalid token", err)
+			log.Println("Invalid token: ", err)
 			authenticate(client)
 			continue
 		}
@@ -217,7 +213,7 @@ func main() {
 	}
 
 	if !config.infiniteAuth && !authenticated {
-		log.Fatalln("infinite authentication attempts are not enabled and the maximum elapsed time has been reached for authentication attempts. exiting.")
+		log.Fatalln("Infinite authentication attempts are not enabled and the maximum elapsed time has been reached for authentication attempts. exiting.")
 	}
 
 	secretFetcher(client)
@@ -254,27 +250,27 @@ func main() {
 }
 
 func renewService(client *api.Client, interval time.Duration) {
-	log.Println("starting the token renewer service on interval", interval)
+	log.Println("Starting the token renewer service on interval", interval)
 	ticker := time.Tick(interval)
 	for {
 		result, err := client.Auth().Token().LookupSelf()
 		if err != nil {
-			log.Fatalln("the existing token failed renewal, exiting..")
+			log.Fatalln("The existing token failed renewal, exiting..")
 		}
 		ttl, err := result.TokenTTL()
 		if ttl.Seconds() < float64(config.renewalThreshold) {
 			fmt.Println("token ttl of", ttl.Seconds(), "is below threshold of", config.renewalThreshold, ", renewing to", config.renewalIncrement)
 			secret, err := client.Auth().Token().RenewSelf(int(config.renewalIncrement))
 			if err != nil {
-				log.Println("failed to renew the existing token:", err)
+				log.Println("Failed to renew the existing token:", err)
 			}
 			client.SetToken(string(secret.Auth.ClientToken))
 			err = ioutil.WriteFile(config.tokenPath, []byte(secret.Auth.ClientToken), 0600)
 			if err != nil {
-				log.Println("could not write token to file", config.tokenPath, err.Error())
+				log.Println("Could not write token to file", config.tokenPath, err.Error())
 			}
 		} else {
-			log.Println(fmt.Sprintf("existing token ttl of %d seconds is still above the threshold (%d), skipping renewal", int64(ttl.Seconds()), config.renewalThreshold))
+			log.Printf("Existing token ttl of %d seconds is still above the threshold (%d), skipping renewal\n", int64(ttl.Seconds()), config.renewalThreshold)
 		}
 		<-ticker
 	}
