@@ -123,11 +123,6 @@ func init() {
 }
 
 func main() {
-	// env var overrides
-	if addr := os.Getenv("VAULT_ADDR"); addr != "" {
-		config.vaultAddress = addr
-	}
-
 	log.SetPrefix("DAYTONA - ")
 	flag.Parse()
 
